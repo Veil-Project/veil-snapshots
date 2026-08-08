@@ -97,9 +97,19 @@ The hashes and totals should match the manifest exactly. Then start the wallet n
 
 Useful flags while testing: `--dry-run` checks the environment and prints the capture metadata without touching anything, `--no-publish` builds the archive locally without creating a release. Settings like the data directory, repo, compression level and an optional GPG signing key are environment variables documented at the top of the script.
 
-Snapshots are built quarterly. A few months of staleness is fine, the wallet just syncs the tail. The crontab for that, with Homebrew paths and a token so `gh` works without a keychain:
+Snapshots are built quarterly, on the 1st of January, April, July and October. A few months of staleness is fine, the wallet just syncs the tail.
+
+On macOS the schedule runs as a LaunchAgent, since macOS blocks `crontab` unless the terminal has Full Disk Access. The plist lives at `~/Library/LaunchAgents/org.veil.snapshots.plist` (see [launchd.plist](org.veil.snapshots.plist) in this repo) and loads with:
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.veil.snapshots.plist
+```
+
+On a Linux box the equivalent crontab is:
 
 ```
-PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
-17 3 1 1,4,7,10 * cd $HOME/dev/veil-snapshots && ./build-snapshot.sh >> work/cron.log 2>&1
+PATH=/usr/local/bin:/usr/bin:/bin
+17 3 1 1,4,7,10 * cd $HOME/veil-snapshots && ./build-snapshot.sh >> work/cron.log 2>&1
 ```
+
+Either way the run logs to `work/cron.log`.
