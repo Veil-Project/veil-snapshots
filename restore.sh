@@ -51,13 +51,28 @@ sha256() {
     fi
 }
 
+# http 1.1 on purpose: some networks kill long http/2 streams (curl error 92),
+# and every retry resumes where the last attempt stopped. aria2 is used when
+# it is installed because it handles flaky links better than anything else.
 dl() {
-    if command -v curl >/dev/null 2>&1; then
-        curl -fL --retry 3 --progress-bar -C - -o "$2" "$1" \
-            || curl -fL --retry 3 --progress-bar -o "$2" "$1"
-    else
-        wget -c -O "$2" "$1"
+    local url="$1" out="$2" attempt=1
+    if command -v aria2c >/dev/null 2>&1; then
+        aria2c --continue=true --max-tries=5 --retry-wait=5 --timeout=60 \
+            --max-connection-per-server=4 --split=4 --min-split-size=20M \
+            --console-log-level=warn --summary-interval=15 \
+            --dir="$(dirname "$out")" --out="$(basename "$out")" "$url" && return 0
+        return 1
     fi
+    if command -v curl >/dev/null 2>&1; then
+        while :; do
+            curl -fL --http1.1 --retry 3 --progress-bar -C - -o "$out" "$url" && return 0
+            attempt=$((attempt + 1))
+            [ "$attempt" -gt 5 ] && return 1
+            echo "download interrupted, resuming (attempt $attempt of 5)" >&2
+            sleep 5
+        done
+    fi
+    wget -c --tries=5 -O "$out" "$url"
 }
 
 confirm() {
@@ -92,6 +107,7 @@ fi
 
 mkdir -p "$WORK"
 say "fetching the release file list"
+rm -f "$WORK/SHA256SUMS" "$WORK/manifest.json"
 dl "$BASE/SHA256SUMS" "$WORK/SHA256SUMS"
 dl "$BASE/manifest.json" "$WORK/manifest.json"
 
@@ -107,6 +123,14 @@ AVAIL_KB=$(df -k "$WORK" | tail -1 | awk '{print $4}')
 
 say "snapshot height $HEIGHT, ${COMP_GB}GB to download in $PART_COUNT parts"
 say "target data directory: $DATADIR"
+if ! command -v aria2c >/dev/null 2>&1; then
+    say "tip: on a flaky connection, aria2 downloads this far more reliably."
+    if [ "$(uname)" = "Darwin" ]; then
+        say "     install it with: brew install aria2, then rerun this script"
+    else
+        say "     install it with your package manager, e.g. sudo apt install aria2"
+    fi
+fi
 
 if [ "$AVAIL_KB" -lt "$NEED_KB" ]; then
     echo "WARNING: this needs roughly $((NEED_KB / 1048576))GB free during restore, you have $((AVAIL_KB / 1048576))GB" >&2
@@ -128,7 +152,11 @@ for f in $PARTS; do
         continue
     fi
     say "downloading $f"
-    dl "$BASE/$f" "$WORK/$f"
+    dl "$BASE/$f" "$WORK/$f" || true
+    [ -f "$WORK/$f" ] || die "$f never arrived, rerun this script to try again"
+    if [ "$(sha256 "$WORK/$f")" != "$want" ]; then
+        die "$f did not complete, rerun this script and it resumes where it left off"
+    fi
 done
 
 say "verifying checksums"

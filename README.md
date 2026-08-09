@@ -6,7 +6,9 @@ Each release contains the `blocks`, `chainstate`, `indexes` and `zerocoin` folde
 
 ## Easy mode
 
-One script does all of it: downloads the latest snapshot, verifies every checksum, and unpacks it into the right place. Close your wallet first.
+One script does all of it: downloads the latest snapshot, verifies every checksum, and unpacks it into the right place.
+
+Two things before you start. Install the Veil wallet and run it once so it creates your wallet and data directory, then shut it down completely. A snapshot only replaces chain data, it does not create a wallet for you, and the wallet has to exist first.
 
 macOS or Linux (needs `zstd`, install with `brew install zstd` or `sudo apt install zstd`):
 
@@ -20,7 +22,7 @@ Windows, in PowerShell:
 iwr -useb https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.ps1 -OutFile restore.ps1; powershell -ExecutionPolicy Bypass -File .\restore.ps1
 ```
 
-Both scripts prompt before replacing anything, pick up where they left off if a download gets interrupted, and take `--check` (Windows: `-Check`) to test your setup without downloading the snapshot. The Windows script fetches its own copy of zstd from the official zstd releases and verifies it against a pinned checksum. Everything below is the same process done by hand.
+Both scripts prompt before replacing anything, pick up where they left off if a download gets interrupted, and take `--check` (Windows: `-Check`) to test your setup without downloading the snapshot. If a download keeps dying partway, install [aria2](https://aria2.github.io) (`brew install aria2` or `sudo apt install aria2`) and rerun, the script picks it up automatically and it handles bad connections much better. Rerunning never starts over, verified parts are kept and partial ones resume. The Windows script fetches its own copy of zstd from the official zstd releases and verifies it against a pinned checksum. Everything below is the same process done by hand.
 
 ## Downloading
 
@@ -66,6 +68,7 @@ Your Veil data directory:
 
 Steps:
 
+0. If this is a brand new install, run the Veil wallet once first so it creates your wallet, then close it. Snapshots replace chain data only, they never contain or create a wallet.
 1. Shut down the Veil wallet completely and wait for it to exit.
 2. In the data directory, delete (or move aside) the old `blocks`, `chainstate`, `indexes` and `zerocoin` folders. Leave everything else alone, especially `wallets`.
 3. Extract the snapshot into the data directory.
