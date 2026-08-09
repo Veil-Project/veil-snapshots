@@ -312,6 +312,9 @@ Contents: $(echo $FOLDERS | sed 's/ /, /g')
 Compressed size: ${TOTAL_GB}GB in $PART_COUNT parts
 Built with node: $SUBVERSION
 
+Easiest restore, one script that downloads, verifies and unpacks:
+https://github.com/$REPO#easy-mode
+
 Verify the download:
 
     shasum -a 256 -c SHA256SUMS

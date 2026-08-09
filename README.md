@@ -4,6 +4,24 @@ Quarterly snapshots of the Veil mainnet blockchain so a fresh wallet can skip sy
 
 Each release contains the `blocks`, `chainstate`, `indexes` and `zerocoin` folders from a fully synced node, compressed with zstd and split into parts under 2GB. Snapshots never contain wallets or keys, your funds are not involved in any way.
 
+## Easy mode
+
+One script does all of it: downloads the latest snapshot, verifies every checksum, and unpacks it into the right place. Close your wallet first.
+
+macOS or Linux (needs `zstd`, install with `brew install zstd` or `sudo apt install zstd`):
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.sh && bash restore.sh
+```
+
+Windows, in PowerShell:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.ps1 -OutFile restore.ps1; powershell -ExecutionPolicy Bypass -File .\restore.ps1
+```
+
+Both scripts prompt before replacing anything, pick up where they left off if a download gets interrupted, and take `--check` (Windows: `-Check`) to test your setup without downloading the snapshot. The Windows script fetches its own copy of zstd from the official zstd releases and verifies it against a pinned checksum. Everything below is the same process done by hand.
+
 ## Downloading
 
 Grab every file from the [latest release](../../releases/latest): all the `.tar.zst.part-*` files, `SHA256SUMS`, and `manifest.json`.
