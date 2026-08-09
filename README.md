@@ -46,6 +46,8 @@ bash restore.sh
 
 It asks before replacing anything. If the download gets interrupted, rerun the same command, it never starts over: verified parts are kept and partial ones resume where they stopped. When it finishes, start your wallet and it syncs the rest from the network.
 
+One thing to expect on that first start: the wallet may rescan the chain, and the progress bar can sit there a while. That is normal and it is not the snapshot being wrong. A brand new wallet skips almost all of it and finishes quickly, because it only scans back as far as its own keys exist. A wallet that already has history, or one holding imported keys with no recorded creation date, rescans from the beginning and that can take hours. Let it finish, it only happens once.
+
 ### Windows
 
 In PowerShell, from a folder where you want the download to land:
