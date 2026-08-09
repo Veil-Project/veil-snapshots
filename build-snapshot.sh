@@ -12,10 +12,16 @@
 #   STOP_TIMEOUT seconds to wait for shutdown      (default: 600)
 #   START_CMD    custom node restart command       (default: veild -daemon)
 #   GPG_KEY      key id to sign SHA256SUMS with    (default: unset, no signing)
+#   MIN_AGE_DAYS skip build if latest release is   (default: 60)
+#                younger than this many days
 #
-# Usage: build-snapshot.sh [--dry-run] [--no-publish]
+# Several builders can share the same schedule: the age check means whoever
+# fires first each quarter publishes and everyone else's run exits clean.
+#
+# Usage: build-snapshot.sh [--dry-run] [--no-publish] [--force]
 #   --dry-run     check environment and node, print capture metadata, change nothing
 #   --no-publish  build the archive locally but skip the github release
+#   --force       build even when a recent release already exists
 
 set -euo pipefail
 
@@ -35,6 +41,7 @@ PART_SIZE="${PART_SIZE:-1900m}"
 STOP_TIMEOUT="${STOP_TIMEOUT:-600}"
 START_CMD="${START_CMD:-}"
 GPG_KEY="${GPG_KEY:-}"
+MIN_AGE_DAYS="${MIN_AGE_DAYS:-60}"
 
 CLI="$VEIL_BIN/veil-cli"
 VEILD="$VEIL_BIN/veild"
@@ -43,10 +50,12 @@ OPTIONAL_FOLDERS="indexes"
 
 DRY_RUN=0
 PUBLISH=1
+FORCE=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run)    DRY_RUN=1 ;;
         --no-publish) PUBLISH=0 ;;
+        --force)      FORCE=1 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -65,6 +74,12 @@ sha256() {
     else
         shasum -a 256 "$1" | awk '{print $1}'
     fi
+}
+
+iso_to_epoch() {
+    date -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null \
+        || date -d "$1" +%s 2>/dev/null \
+        || echo 0
 }
 
 start_node() {
@@ -148,6 +163,23 @@ if [ "$PUBLISH" = 1 ] && [ "$DRY_RUN" = 0 ]; then
 fi
 if [ "$DRY_RUN" = 1 ] && ! gh auth status >/dev/null 2>&1; then
     log "note: gh not authenticated yet, publishing would fail"
+fi
+
+if [ "$PUBLISH" = 1 ] && [ "$FORCE" = 0 ] && gh auth status >/dev/null 2>&1; then
+    latest=$(gh release list -R "$REPO" --limit 1 --json publishedAt -q '.[0].publishedAt' 2>/dev/null || true)
+    if [ -n "$latest" ] && [ "$latest" != "null" ]; then
+        age_days=$(( ($(date +%s) - $(iso_to_epoch "$latest")) / 86400 ))
+        if [ "$age_days" -lt "$MIN_AGE_DAYS" ]; then
+            if [ "$DRY_RUN" = 1 ]; then
+                log "note: latest release is ${age_days}d old, a real run would stop here (MIN_AGE_DAYS=$MIN_AGE_DAYS)"
+            else
+                log "latest release is ${age_days}d old, under MIN_AGE_DAYS=$MIN_AGE_DAYS, nothing to do (--force overrides)"
+                exit 0
+            fi
+        else
+            log "latest release is ${age_days}d old, building a fresh one"
+        fi
+    fi
 fi
 
 rpc getblockcount >/dev/null 2>&1 || die "node not reachable via RPC at $DATADIR"

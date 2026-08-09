@@ -95,7 +95,22 @@ The hashes and totals should match the manifest exactly. Then start the wallet n
 
 [`build-snapshot.sh`](build-snapshot.sh) runs on a machine with a synced mainnet node. It freezes the tip, records the metadata above, stops the node, streams the four folders through `tar | zstd | split`, restarts the node, writes checksums and the manifest, and publishes everything here as a release with the GitHub CLI. The node is only down for the compression step.
 
-Useful flags while testing: `--dry-run` checks the environment and prints the capture metadata without touching anything, `--no-publish` builds the archive locally without creating a release. Settings like the data directory, repo, compression level and an optional GPG signing key are environment variables documented at the top of the script.
+Useful flags while testing: `--dry-run` checks the environment and prints the capture metadata without touching anything, `--no-publish` builds the archive locally without creating a release, `--force` builds even when a recent release already exists. Settings like the data directory, repo, compression level and an optional GPG signing key are environment variables documented at the top of the script.
+
+### Run a builder
+
+This pipeline is not meant to have an owner. Any team member with a synced mainnet node can run a builder, and several people running one at once is the point, that's the redundancy:
+
+1. Clone this repo on the machine with the node.
+2. `gh auth login` with a GitHub account that has write access to this repo.
+3. Test it with `./build-snapshot.sh --dry-run`.
+4. Install the schedule below, with your own day of the month.
+
+Before doing anything, the script checks the latest release here. If it is younger than 60 days (`MIN_AGE_DAYS`) it exits without touching the node. That makes shared scheduling safe: stagger each builder a few days apart (the 1st, the 3rd, the 5th), whoever fires first that quarter publishes, and everyone else's run sees the fresh release and stops. If the first builder's machine is dead that quarter, the next one picks it up automatically.
+
+The node is only down for about the compression step, which took under 3 minutes on an M4 Mac mini for a 28GB chain. The upload afterwards runs with the node back up.
+
+### Schedule
 
 Snapshots are built quarterly, on the 1st of January, April, July and October. A few months of staleness is fine, the wallet just syncs the tail.
 
