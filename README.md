@@ -11,7 +11,7 @@ Grab every file from the [latest release](../../releases/latest): all the `.tar.
 Or from a terminal with the [GitHub CLI](https://cli.github.com):
 
 ```bash
-gh release download -R ohcee/veil-snapshots
+gh release download -R ohcee/veil-snapshots -p '*'
 ```
 
 ## Verifying the download
