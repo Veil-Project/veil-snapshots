@@ -8,29 +8,61 @@ Each release contains the `blocks`, `chainstate`, `indexes` and `zerocoin` folde
 
 One script does all of it: downloads the latest snapshot, verifies every checksum, and unpacks it into the right place.
 
-Two things before you start. Install the Veil wallet and run it once so it creates your wallet and data directory, then shut it down completely. A snapshot only replaces chain data, it does not create a wallet for you, and the wallet has to exist first.
+Expect about 25GB of downloading, roughly 20 minutes on a decent connection, and around 55GB of free disk space while it runs. When it finishes, your data directory holds about 28GB and the downloads are deleted.
 
-**macOS or Linux.** Install [aria2](https://aria2.github.io) and `zstd` first, then run the script:
+**Before you start:** install the [Veil wallet](https://veil-project.com/get-started/) and run it once so it creates your wallet, then close it completely. A snapshot replaces chain data only. It never contains or creates a wallet, so yours has to exist first.
+
+### Step 1, install the two tools the script uses
+
+macOS (needs [Homebrew](https://brew.sh)):
 
 ```bash
 brew install aria2 zstd
 ```
 
-On Debian or Ubuntu that's `sudo apt install aria2 zstd` instead. Then:
+Debian or Ubuntu:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.sh && bash restore.sh
+sudo apt install aria2 zstd
 ```
 
-Installing aria2 is worth the extra step. The script uses it automatically when it's there, and it makes the download dramatically faster and far more reliable. A real run of the whole 24.6GB took 17 minutes with aria2 on a connection where plain downloads had been failing outright. Without it the script falls back to curl, which works but is slower and gives up more easily on a bad connection.
+Installing aria2 is worth it. The script picks it up automatically and it makes the download dramatically faster and more reliable. A real run of the full 24.6GB took 17 minutes with aria2, on a connection where plain downloads had been failing outright. Without it the script falls back to curl, which works but is slower and gives up more easily.
 
-**Windows**, in PowerShell:
+### Step 2, download the script and test your setup
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.sh && bash restore.sh --check
+```
+
+That downloads nothing big. It just confirms your tools, disk space and data directory are ready, and tells you what it would fetch. Fix anything it complains about before moving on.
+
+### Step 3, do the restore
+
+Close your Veil wallet first, then:
+
+```bash
+bash restore.sh
+```
+
+It asks before replacing anything. If the download gets interrupted, rerun the same command, it never starts over: verified parts are kept and partial ones resume where they stopped. When it finishes, start your wallet and it syncs the rest from the network.
+
+### Windows
+
+In PowerShell, from a folder where you want the download to land:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.ps1 -OutFile restore.ps1; powershell -ExecutionPolicy Bypass -File .\restore.ps1
+iwr -useb https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.ps1 -OutFile restore.ps1; Set-ExecutionPolicy -Scope Process Bypass -Force; .\restore.ps1 -Check
 ```
 
-Both scripts prompt before replacing anything and take `--check` (Windows: `-Check`) to test your setup without downloading the snapshot. If a download ever gets interrupted, just rerun the same command, it never starts over. Verified parts are kept and partial ones resume where they stopped. The Windows script fetches its own copy of zstd from the official zstd releases and verifies it against a pinned checksum. Everything below is the same process done by hand.
+That is the same setup test as above. When it looks good, close your wallet and run the real thing:
+
+```powershell
+.\restore.ps1
+```
+
+The Windows script fetches its own copy of zstd from the official zstd releases and checks it against a pinned checksum, so there is nothing else to install.
+
+Everything below is the same process done by hand.
 
 ## Downloading
 
@@ -82,18 +114,26 @@ Steps:
 3. Extract the snapshot into the data directory.
 4. Start the wallet. It syncs the remaining blocks from the network normally.
 
-Extract on macOS or Linux (from the folder holding the downloaded parts):
+Extract on macOS, from the folder holding the downloaded parts:
 
 ```bash
 cat veil-mainnet-h*.tar.zst.part-* | zstd -d | tar -x -C "$HOME/Library/Application Support/Veil"
 ```
 
-Use `~/.veil` as the target on Linux.
+Extract on Linux:
 
-Extract on Windows: join the parts first, then unpack. In `cmd` from the download folder:
+```bash
+cat veil-mainnet-h*.tar.zst.part-* | zstd -d | tar -x -C "$HOME/.veil"
+```
 
-```bat
-copy /b veil-mainnet-h*.tar.zst.part-* snapshot.tar.zst
+Extract on Windows: join the parts first, then unpack. Order matters here, so use PowerShell rather than `copy /b` with a wildcard, which joins in whatever order the folder happens to return and can silently produce a broken archive:
+
+```powershell
+$out = [System.IO.File]::Create("$PWD\snapshot.tar.zst")
+Get-ChildItem veil-mainnet-h*.tar.zst.part-* | Sort-Object Name | ForEach-Object {
+    $in = [System.IO.File]::OpenRead($_.FullName); $in.CopyTo($out); $in.Close()
+}
+$out.Close()
 ```
 
 Then either open `snapshot.tar.zst` with a recent [7-Zip](https://www.7-zip.org) (extract twice, once for the `.zst` and once for the `.tar`), or with the official [zstd build](https://github.com/facebook/zstd/releases) and the tar that ships with Windows 10 and later:
