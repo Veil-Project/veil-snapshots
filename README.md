@@ -10,19 +10,27 @@ One script does all of it: downloads the latest snapshot, verifies every checksu
 
 Two things before you start. Install the Veil wallet and run it once so it creates your wallet and data directory, then shut it down completely. A snapshot only replaces chain data, it does not create a wallet for you, and the wallet has to exist first.
 
-macOS or Linux (needs `zstd`, install with `brew install zstd` or `sudo apt install zstd`):
+**macOS or Linux.** Install [aria2](https://aria2.github.io) and `zstd` first, then run the script:
+
+```bash
+brew install aria2 zstd
+```
+
+On Debian or Ubuntu that's `sudo apt install aria2 zstd` instead. Then:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.sh && bash restore.sh
 ```
 
-Windows, in PowerShell:
+Installing aria2 is worth the extra step. The script uses it automatically when it's there, and it makes the download dramatically faster and far more reliable. A real run of the whole 24.6GB took 17 minutes with aria2 on a connection where plain downloads had been failing outright. Without it the script falls back to curl, which works but is slower and gives up more easily on a bad connection.
+
+**Windows**, in PowerShell:
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.ps1 -OutFile restore.ps1; powershell -ExecutionPolicy Bypass -File .\restore.ps1
 ```
 
-Both scripts prompt before replacing anything, pick up where they left off if a download gets interrupted, and take `--check` (Windows: `-Check`) to test your setup without downloading the snapshot. If a download keeps dying partway, install [aria2](https://aria2.github.io) (`brew install aria2` or `sudo apt install aria2`) and rerun, the script picks it up automatically and it handles bad connections much better. Rerunning never starts over, verified parts are kept and partial ones resume. The Windows script fetches its own copy of zstd from the official zstd releases and verifies it against a pinned checksum. Everything below is the same process done by hand.
+Both scripts prompt before replacing anything and take `--check` (Windows: `-Check`) to test your setup without downloading the snapshot. If a download ever gets interrupted, just rerun the same command, it never starts over. Verified parts are kept and partial ones resume where they stopped. The Windows script fetches its own copy of zstd from the official zstd releases and verifies it against a pinned checksum. Everything below is the same process done by hand.
 
 ## Downloading
 

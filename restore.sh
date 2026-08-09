@@ -54,18 +54,27 @@ sha256() {
 # http 1.1 on purpose: some networks kill long http/2 streams (curl error 92),
 # and every retry resumes where the last attempt stopped. aria2 is used when
 # it is installed because it handles flaky links better than anything else.
+# pass "quiet" as the third argument for small files, so the progress
+# machinery does not drown out the actual messages
 dl() {
-    local url="$1" out="$2" attempt=1
+    local url="$1" out="$2" quiet="${3:-}" attempt=1
     if command -v aria2c >/dev/null 2>&1; then
+        if [ "$quiet" = quiet ]; then
+            aria2c --continue=true --max-tries=5 --retry-wait=5 --timeout=60 \
+                --quiet=true --dir="$(dirname "$out")" --out="$(basename "$out")" "$url"
+            return $?
+        fi
         aria2c --continue=true --max-tries=5 --retry-wait=5 --timeout=60 \
             --max-connection-per-server=4 --split=4 --min-split-size=20M \
             --console-log-level=warn --summary-interval=15 \
-            --dir="$(dirname "$out")" --out="$(basename "$out")" "$url" && return 0
-        return 1
+            --dir="$(dirname "$out")" --out="$(basename "$out")" "$url"
+        return $?
     fi
     if command -v curl >/dev/null 2>&1; then
+        local bar=--progress-bar
+        [ "$quiet" = quiet ] && bar=-s
         while :; do
-            curl -fL --http1.1 --retry 3 --progress-bar -C - -o "$out" "$url" && return 0
+            curl -fL --http1.1 --retry 3 $bar -C - -o "$out" "$url" && return 0
             attempt=$((attempt + 1))
             [ "$attempt" -gt 5 ] && return 1
             echo "download interrupted, resuming (attempt $attempt of 5)" >&2
@@ -108,8 +117,8 @@ fi
 mkdir -p "$WORK"
 say "fetching the release file list"
 rm -f "$WORK/SHA256SUMS" "$WORK/manifest.json"
-dl "$BASE/SHA256SUMS" "$WORK/SHA256SUMS"
-dl "$BASE/manifest.json" "$WORK/manifest.json"
+dl "$BASE/SHA256SUMS" "$WORK/SHA256SUMS" quiet
+dl "$BASE/manifest.json" "$WORK/manifest.json" quiet
 
 HEIGHT=$(grep -o '"height": *[0-9]*' "$WORK/manifest.json" | head -1 | grep -o '[0-9]*' || echo "unknown")
 COMPRESSED=$(grep -o '"compressed_bytes": *[0-9]*' "$WORK/manifest.json" | head -1 | grep -o '[0-9]*' || echo 0)
@@ -123,13 +132,17 @@ AVAIL_KB=$(df -k "$WORK" | tail -1 | awk '{print $4}')
 
 say "snapshot height $HEIGHT, ${COMP_GB}GB to download in $PART_COUNT parts"
 say "target data directory: $DATADIR"
-if ! command -v aria2c >/dev/null 2>&1; then
-    say "tip: on a flaky connection, aria2 downloads this far more reliably."
+if command -v aria2c >/dev/null 2>&1; then
+    say "using aria2 for the download"
+else
+    say "aria2 is not installed, falling back to curl (slower, and it gives up"
+    say "more easily on a bad connection). Stop now and install it if you can:"
     if [ "$(uname)" = "Darwin" ]; then
-        say "     install it with: brew install aria2, then rerun this script"
+        say "  brew install aria2"
     else
-        say "     install it with your package manager, e.g. sudo apt install aria2"
+        say "  sudo apt install aria2"
     fi
+    say "then rerun this script. Anything already downloaded is kept."
 fi
 
 if [ "$AVAIL_KB" -lt "$NEED_KB" ]; then
