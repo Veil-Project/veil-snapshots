@@ -125,8 +125,10 @@ cat veil-mainnet-h*.tar.zst.part-* | zstd -d | tar -x -C "$HOME/Library/Applicat
 Extract on Linux:
 
 ```bash
-cat veil-mainnet-h*.tar.zst.part-* | zstd -d | tar -x -C "$HOME/.veil"
+cat veil-mainnet-h*.tar.zst.part-* | zstd -d | tar --warning=no-unknown-keyword -x -C "$HOME/.veil"
 ```
+
+Snapshots built on a Mac carry Apple extended attributes that GNU tar does not recognize, and without that flag it prints `Ignoring unknown extended header keyword` once per file. Those are warnings, not errors, and the files extract correctly either way. The flag just keeps the output readable.
 
 Extract on Windows: join the parts first, then unpack. Order matters here, so use PowerShell rather than `copy /b` with a wildcard, which joins in whatever order the folder happens to return and can silently produce a broken archive:
 

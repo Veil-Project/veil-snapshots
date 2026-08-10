@@ -244,8 +244,17 @@ log "stopping node for archive (tip frozen at $HEIGHT)"
 stop_node
 log "node stopped, compressing $((DATA_KB / 1048576))GB (zstd level $ZSTD_LEVEL, this takes a while)"
 
+# macOS tar records apple xattrs by default, which makes GNU tar on Linux
+# print a warning for every single file on extract. Leave them out.
+TAR_CREATE_OPTS=""
+if tar --version 2>&1 | grep -qi bsdtar; then
+    TAR_CREATE_OPTS="--no-mac-metadata --no-xattrs"
+elif tar --version 2>&1 | grep -qi "GNU tar"; then
+    TAR_CREATE_OPTS="--no-xattrs"
+fi
+
 # shellcheck disable=SC2086
-tar -C "$DATADIR" -cf - $FOLDERS \
+COPYFILE_DISABLE=1 tar $TAR_CREATE_OPTS -C "$DATADIR" -cf - $FOLDERS \
     | zstd -T0 "-$ZSTD_LEVEL" -q \
     | split -b "$PART_SIZE" - "$OUT/$NAME.tar.zst.part-"
 

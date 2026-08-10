@@ -198,7 +198,12 @@ if [ -n "$EXISTING" ]; then
 fi
 
 say "unpacking into $DATADIR (this takes a few minutes)"
-cat "$WORK"/*.tar.zst.part-* | zstd -d | tar -x -C "$DATADIR"
+# snapshots built on a mac carry apple xattrs that GNU tar does not know, and
+# it warns once per file about them. The files extract fine, so hush it.
+TAR_OPTS=""
+tar --version 2>&1 | grep -qi "GNU tar" && TAR_OPTS="--warning=no-unknown-keyword"
+# shellcheck disable=SC2086
+cat "$WORK"/*.tar.zst.part-* | zstd -d | tar $TAR_OPTS -x -C "$DATADIR"
 
 say "cleaning up downloaded files"
 rm -rf "$WORK"
