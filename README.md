@@ -48,6 +48,16 @@ It asks before replacing anything. If the download gets interrupted, rerun the s
 
 One thing to expect on that first start: the wallet may rescan the chain, and the progress bar can sit there a while. That is normal and it is not the snapshot being wrong. A brand new wallet skips almost all of it and finishes quickly, because it only scans back as far as its own keys exist. A wallet that already has history, or one holding imported keys with no recorded creation date, rescans from the beginning and that can take hours. Let it finish, it only happens once.
 
+### Testnet
+
+Same script, add `--testnet`:
+
+```bash
+bash restore.sh --testnet
+```
+
+It fetches the newest testnet release and unpacks into the `testnet4` folder inside your data directory, leaving your mainnet chain alone. Start the wallet with `-testnet` afterwards. Testnet releases are tagged `testnet-h<height>` and mainnet ones `mainnet-h<height>`, so the two never collide.
+
 ### Windows
 
 In PowerShell, from a folder where you want the download to land:
@@ -169,6 +179,14 @@ The hashes and totals should match the manifest exactly. Then start the wallet n
 [`build-snapshot.sh`](build-snapshot.sh) runs on a machine with a synced mainnet node. It freezes the tip, records the metadata above, stops the node, streams the four folders through `tar | zstd | split`, restarts the node, writes checksums and the manifest, and publishes everything here as a release with the GitHub CLI. The node is only down for the compression step.
 
 Useful flags while testing: `--dry-run` checks the environment and prints the capture metadata without touching anything, `--no-publish` builds the archive locally without creating a release, `--force` builds even when a recent release already exists. Settings like the data directory, repo, compression level and an optional GPG signing key are environment variables documented at the top of the script.
+
+Add `--testnet` to snapshot testnet instead. It reads the `testnet4` folder and publishes under a `testnet-` tag. Each chain's freshness is tracked separately, so a recent mainnet release never stops a testnet build.
+
+If the node is managed by systemd, hand the script the unit rather than letting it stop the process directly, otherwise `Restart=on-failure` can relaunch the node in the middle of the archive:
+
+```bash
+STOP_CMD="systemctl stop veild" START_CMD="systemctl start veild" ./build-snapshot.sh --testnet
+```
 
 ### Run a builder
 

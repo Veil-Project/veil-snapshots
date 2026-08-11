@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Downloads the latest Veil mainnet snapshot release, verifies every file,
-# and unpacks it into the Veil data directory. Run it with the wallet closed.
+# Downloads the latest Veil snapshot release, verifies every file, and unpacks
+# it into the Veil data directory. Run it with the wallet closed.
 #
-# Usage: restore.sh [--datadir <path>] [--tag <release-tag>] [--check] [--yes]
+# Usage: restore.sh [--testnet] [--datadir <path>] [--tag <tag>] [--check] [--yes]
+#   --testnet  restore testnet instead of mainnet
 #   --datadir  target data directory (default: the platform's standard one)
 #   --tag      restore a specific release instead of the latest
 #   --check    verify tools and show the plan, download nothing big
@@ -16,8 +17,10 @@ DATADIR=""
 TAG=""
 CHECK=0
 YES=0
+TESTNET=0
 while [ $# -gt 0 ]; do
     case "$1" in
+        --testnet) TESTNET=1; shift ;;
         --datadir) DATADIR="$2"; shift 2 ;;
         --tag)     TAG="$2"; shift 2 ;;
         --check)   CHECK=1; shift ;;
@@ -33,6 +36,24 @@ if [ -z "$DATADIR" ]; then
         DATADIR="$HOME/.veil"
     fi
 fi
+
+# testnet chain data lives in a subfolder, and its releases are never flagged
+# "latest" on GitHub, so the newest testnet tag has to be looked up by name
+if [ "$TESTNET" = 1 ]; then
+    CHAIN_LABEL=testnet
+    TARGET="$DATADIR/testnet4"
+else
+    CHAIN_LABEL=mainnet
+    TARGET="$DATADIR"
+fi
+
+if [ -z "$TAG" ] && [ "$TESTNET" = 1 ]; then
+    TAG=$(curl -fsSL --http1.1 "https://api.github.com/repos/$REPO/releases?per_page=100" 2>/dev/null \
+        | grep -o '"tag_name": *"testnet-[^"]*"' | head -1 \
+        | sed 's/.*"\(testnet-[^"]*\)"/\1/') || true
+    [ -n "$TAG" ] || { echo "ERROR: no testnet release published yet in $REPO" >&2; exit 1; }
+fi
+
 if [ -n "$TAG" ]; then
     BASE="https://github.com/$REPO/releases/download/$TAG"
 else
@@ -130,8 +151,8 @@ COMP_GB=$(echo "$COMPRESSED" | awk '{printf "%.1f", $1 / 1073741824}')
 NEED_KB=$(echo "$COMPRESSED" | awk '{printf "%d", $1 * 2.2 / 1024}')
 AVAIL_KB=$(df -k "$WORK" | tail -1 | awk '{print $4}')
 
-say "snapshot height $HEIGHT, ${COMP_GB}GB to download in $PART_COUNT parts"
-say "target data directory: $DATADIR"
+say "$CHAIN_LABEL snapshot height $HEIGHT, ${COMP_GB}GB to download in $PART_COUNT parts"
+say "target directory: $TARGET"
 if command -v aria2c >/dev/null 2>&1; then
     say "using aria2 for the download"
 else
@@ -183,29 +204,33 @@ cd ..
 
 # ---- unpack -------------------------------------------------------------
 
-mkdir -p "$DATADIR"
+mkdir -p "$TARGET"
 EXISTING=""
 for d in blocks chainstate indexes zerocoin; do
-    [ -d "$DATADIR/$d" ] && EXISTING="$EXISTING $d"
+    [ -d "$TARGET/$d" ] && EXISTING="$EXISTING $d"
 done
 if [ -n "$EXISTING" ]; then
-    echo "the data directory already has:$EXISTING"
+    echo "the $CHAIN_LABEL directory already has:$EXISTING"
     confirm "replace them with the snapshot? (wallets and settings are untouched)" \
         || die "stopped, nothing was changed"
     for d in $EXISTING; do
-        rm -rf "${DATADIR:?}/$d"
+        rm -rf "${TARGET:?}/$d"
     done
 fi
 
-say "unpacking into $DATADIR (this takes a few minutes)"
+say "unpacking into $TARGET (this takes a few minutes)"
 # snapshots built on a mac carry apple xattrs that GNU tar does not know, and
 # it warns once per file about them. The files extract fine, so hush it.
 TAR_OPTS=""
 tar --version 2>&1 | grep -qi "GNU tar" && TAR_OPTS="--warning=no-unknown-keyword"
 # shellcheck disable=SC2086
-cat "$WORK"/*.tar.zst.part-* | zstd -d | tar $TAR_OPTS -x -C "$DATADIR"
+cat "$WORK"/*.tar.zst.part-* | zstd -d | tar $TAR_OPTS -x -C "$TARGET"
 
 say "cleaning up downloaded files"
 rm -rf "$WORK"
 
-say "done. Start your Veil wallet, it will sync the remaining blocks from the network."
+if [ "$TESTNET" = 1 ]; then
+    say "done. Start your wallet with -testnet and it will sync the rest from the network."
+else
+    say "done. Start your Veil wallet, it will sync the remaining blocks from the network."
+fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds a Veil mainnet snapshot from a local synced node and publishes it
-# as a GitHub release. See README.md for restore and verification steps.
+# Builds a Veil snapshot from a local synced node and publishes it as a
+# GitHub release. See README.md for restore and verification steps.
 #
 # Config comes from environment variables, all optional on the standard setup:
 #   VEIL_BIN     dir holding veild and veil-cli    (default: ~/dev/veil-bin)
@@ -10,18 +10,24 @@
 #   ZSTD_LEVEL   compression level                 (default: 10)
 #   PART_SIZE    split size, must stay under 2GiB  (default: 1900m)
 #   STOP_TIMEOUT seconds to wait for shutdown      (default: 600)
-#   START_CMD    custom node restart command       (default: veild -daemon)
+#   START_CMD    custom node start command         (default: veild -daemon)
+#   STOP_CMD     custom node stop command          (default: veil-cli stop)
 #   GPG_KEY      key id to sign SHA256SUMS with    (default: unset, no signing)
 #   MIN_AGE_DAYS skip build if latest release is   (default: 60)
 #                younger than this many days
 #
 # Several builders can share the same schedule: the age check means whoever
 # fires first each quarter publishes and everyone else's run exits clean.
+# Mainnet and testnet are tracked separately, so one never blocks the other.
 #
-# Usage: build-snapshot.sh [--dry-run] [--no-publish] [--force]
+# Usage: build-snapshot.sh [--testnet] [--dry-run] [--no-publish] [--force]
+#   --testnet     snapshot testnet instead of mainnet
 #   --dry-run     check environment and node, print capture metadata, change nothing
 #   --no-publish  build the archive locally but skip the github release
 #   --force       build even when a recent release already exists
+#
+# On a node managed by systemd, point the stop and start commands at the unit:
+#   STOP_CMD="systemctl stop veild" START_CMD="systemctl start veild" ./build-snapshot.sh --testnet
 
 set -euo pipefail
 
@@ -40,6 +46,7 @@ ZSTD_LEVEL="${ZSTD_LEVEL:-10}"
 PART_SIZE="${PART_SIZE:-1900m}"
 STOP_TIMEOUT="${STOP_TIMEOUT:-600}"
 START_CMD="${START_CMD:-}"
+STOP_CMD="${STOP_CMD:-}"
 GPG_KEY="${GPG_KEY:-}"
 MIN_AGE_DAYS="${MIN_AGE_DAYS:-60}"
 
@@ -51,8 +58,10 @@ OPTIONAL_FOLDERS="indexes"
 DRY_RUN=0
 PUBLISH=1
 FORCE=0
+TESTNET=0
 for arg in "$@"; do
     case "$arg" in
+        --testnet)    TESTNET=1 ;;
         --dry-run)    DRY_RUN=1 ;;
         --no-publish) PUBLISH=0 ;;
         --force)      FORCE=1 ;;
@@ -60,13 +69,28 @@ for arg in "$@"; do
     esac
 done
 
+# testnet lives in a subfolder of the datadir and answers to a different
+# chain name, everything else about the build is identical
+if [ "$TESTNET" = 1 ]; then
+    CHAIN_LABEL=testnet
+    WANT_CHAIN=test
+    NET_ARG=-testnet
+    CHAIN_DIR="$DATADIR/testnet4"
+else
+    CHAIN_LABEL=mainnet
+    WANT_CHAIN=main
+    NET_ARG=
+    CHAIN_DIR="$DATADIR"
+fi
+
 NODE_STOPPED=0
 NET_OFF=0
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-rpc() { "$CLI" -datadir="$DATADIR" "$@"; }
+# shellcheck disable=SC2086
+rpc() { "$CLI" -datadir="$DATADIR" $NET_ARG "$@"; }
 
 sha256() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -86,7 +110,8 @@ start_node() {
     if [ -n "$START_CMD" ]; then
         sh -c "$START_CMD"
     else
-        "$VEILD" -datadir="$DATADIR" -daemon
+        # shellcheck disable=SC2086
+        "$VEILD" -datadir="$DATADIR" $NET_ARG -daemon
     fi
     local waited=0
     while ! rpc getblockcount >/dev/null 2>&1; do
@@ -114,10 +139,14 @@ trap cleanup EXIT
 
 stop_node() {
     local pid=""
-    [ -f "$DATADIR/veild.pid" ] && pid=$(cat "$DATADIR/veild.pid" 2>/dev/null || true)
+    [ -f "$CHAIN_DIR/veild.pid" ] && pid=$(cat "$CHAIN_DIR/veild.pid" 2>/dev/null || true)
     NODE_STOPPED=1
     NET_OFF=0
-    rpc stop >/dev/null
+    if [ -n "$STOP_CMD" ]; then
+        sh -c "$STOP_CMD"
+    else
+        rpc stop >/dev/null
+    fi
     local waited=0
     while :; do
         if [ -n "$pid" ]; then
@@ -144,13 +173,15 @@ if pgrep -x veil-qt >/dev/null 2>&1; then
     die "veil-qt is running and holds the datadir, close the GUI wallet first"
 fi
 
+[ -d "$CHAIN_DIR" ] || die "$CHAIN_LABEL directory not found: $CHAIN_DIR"
+
 FOLDERS=""
 for f in $REQUIRED_FOLDERS; do
-    [ -d "$DATADIR/$f" ] || die "required folder missing from datadir: $f"
+    [ -d "$CHAIN_DIR/$f" ] || die "required folder missing from $CHAIN_LABEL dir: $f"
     FOLDERS="$FOLDERS $f"
 done
 for f in $OPTIONAL_FOLDERS; do
-    if [ -d "$DATADIR/$f" ]; then
+    if [ -d "$CHAIN_DIR/$f" ]; then
         FOLDERS="$FOLDERS $f"
     else
         log "note: optional folder $f not present, skipping"
@@ -166,18 +197,20 @@ if [ "$DRY_RUN" = 1 ] && ! gh auth status >/dev/null 2>&1; then
 fi
 
 if [ "$PUBLISH" = 1 ] && [ "$FORCE" = 0 ] && gh auth status >/dev/null 2>&1; then
-    latest=$(gh release list -R "$REPO" --limit 1 --json publishedAt -q '.[0].publishedAt' 2>/dev/null || true)
+    # only this chain's releases count, so mainnet and testnet never block each other
+    latest=$(gh release list -R "$REPO" --limit 100 --json tagName,publishedAt \
+        -q "[.[] | select(.tagName | startswith(\"${CHAIN_LABEL}-\"))] | .[0].publishedAt" 2>/dev/null || true)
     if [ -n "$latest" ] && [ "$latest" != "null" ]; then
         age_days=$(( ($(date +%s) - $(iso_to_epoch "$latest")) / 86400 ))
         if [ "$age_days" -lt "$MIN_AGE_DAYS" ]; then
             if [ "$DRY_RUN" = 1 ]; then
-                log "note: latest release is ${age_days}d old, a real run would stop here (MIN_AGE_DAYS=$MIN_AGE_DAYS)"
+                log "note: latest $CHAIN_LABEL release is ${age_days}d old, a real run would stop here (MIN_AGE_DAYS=$MIN_AGE_DAYS)"
             else
-                log "latest release is ${age_days}d old, under MIN_AGE_DAYS=$MIN_AGE_DAYS, nothing to do (--force overrides)"
+                log "latest $CHAIN_LABEL release is ${age_days}d old, under MIN_AGE_DAYS=$MIN_AGE_DAYS, nothing to do (--force overrides)"
                 exit 0
             fi
         else
-            log "latest release is ${age_days}d old, building a fresh one"
+            log "latest $CHAIN_LABEL release is ${age_days}d old, building a fresh one"
         fi
     fi
 fi
@@ -186,7 +219,8 @@ rpc getblockcount >/dev/null 2>&1 || die "node not reachable via RPC at $DATADIR
 
 CHAININFO=$(rpc getblockchaininfo)
 CHAIN=$(echo "$CHAININFO" | jq -r .chain)
-[ "$CHAIN" = "main" ] || die "node is on chain '$CHAIN', this script snapshots mainnet"
+[ "$CHAIN" = "$WANT_CHAIN" ] \
+    || die "node reports chain '$CHAIN' but this run targets $CHAIN_LABEL ('$WANT_CHAIN')"
 BLOCKS=$(echo "$CHAININFO" | jq -r .blocks)
 HEADERS=$(echo "$CHAININFO" | jq -r .headers)
 PROGRESS=$(echo "$CHAININFO" | jq -r .verificationprogress)
@@ -196,7 +230,7 @@ SYNCED=$(echo "$PROGRESS" | awk '{print ($1 > 0.9999) ? "yes" : "no"}')
 
 DATA_KB=0
 for f in $FOLDERS; do
-    kb=$(du -sk "$DATADIR/$f" | awk '{print $1}')
+    kb=$(du -sk "$CHAIN_DIR/$f" | awk '{print $1}')
     DATA_KB=$((DATA_KB + kb))
 done
 mkdir -p "$WORKDIR"
@@ -205,7 +239,7 @@ NEED_KB=$((DATA_KB + 1048576))
 if [ "$AVAIL_KB" -lt "$NEED_KB" ]; then
     die "not enough disk in $WORKDIR: need ~$((NEED_KB / 1048576))GB, have $((AVAIL_KB / 1048576))GB"
 fi
-log "preflight ok: chain synced at $BLOCKS, data $((DATA_KB / 1048576))GB, folders:$FOLDERS"
+log "preflight ok: $CHAIN_LABEL synced at $BLOCKS, data $((DATA_KB / 1048576))GB, folders:$FOLDERS"
 
 # ---- capture metadata ---------------------------------------------------
 
@@ -221,8 +255,8 @@ SUBVERSION=$(rpc getnetworkinfo | jq -r .subversion)
 TXOUTSET=$(rpc gettxoutsetinfo 2>/dev/null) || TXOUTSET='{}'
 CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-NAME="veil-mainnet-h${HEIGHT}"
-TAG="mainnet-h${HEIGHT}"
+NAME="veil-${CHAIN_LABEL}-h${HEIGHT}"
+TAG="${CHAIN_LABEL}-h${HEIGHT}"
 
 if [ "$DRY_RUN" = 1 ]; then
     log "dry run: would capture $NAME"
@@ -254,7 +288,7 @@ elif tar --version 2>&1 | grep -qi "GNU tar"; then
 fi
 
 # shellcheck disable=SC2086
-COPYFILE_DISABLE=1 tar $TAR_CREATE_OPTS -C "$DATADIR" -cf - $FOLDERS \
+COPYFILE_DISABLE=1 tar $TAR_CREATE_OPTS -C "$CHAIN_DIR" -cf - $FOLDERS \
     | zstd -T0 "-$ZSTD_LEVEL" -q \
     | split -b "$PART_SIZE" - "$OUT/$NAME.tar.zst.part-"
 
@@ -280,7 +314,7 @@ for f in "$NAME".tar.zst.part-*; do
 done
 
 jq -n \
-    --arg name "$NAME" --arg chain "main" --arg created "$CREATED" \
+    --arg name "$NAME" --arg chain "$CHAIN" --arg created "$CREATED" \
     --argjson height "$HEIGHT" --arg bestblockhash "$BESTHASH" \
     --arg subversion "$SUBVERSION" --arg folders "$(echo $FOLDERS)" \
     --argjson txoutsetinfo "$TXOUTSET" --argjson totalbytes "$TOTAL_BYTES" \
@@ -313,8 +347,15 @@ fi
 
 DATE_SHORT=$(date -u +%Y-%m-%d)
 NOTES="$OUT/.notes.md"
+RESTORE_FLAG=""
+RESTORE_TARGET="your veil datadir"
+if [ "$TESTNET" = 1 ]; then
+    RESTORE_FLAG=" --testnet"
+    RESTORE_TARGET="the testnet4 folder inside your veil datadir"
+fi
+
 cat > "$NOTES" <<EOF
-Veil mainnet snapshot at height $HEIGHT, captured $DATE_SHORT.
+Veil $CHAIN_LABEL snapshot at height $HEIGHT, captured $DATE_SHORT.
 
 Best block hash: $BESTHASH
 Contents: $(echo $FOLDERS | sed 's/ /, /g')
@@ -322,23 +363,30 @@ Compressed size: ${TOTAL_GB}GB in $PART_COUNT parts
 Built with node: $SUBVERSION
 
 Easiest restore, one script that downloads, verifies and unpacks:
-https://github.com/$REPO#easy-mode
 
-Verify the download:
+    curl -fsSLO https://raw.githubusercontent.com/$REPO/main/restore.sh
+    bash restore.sh$RESTORE_FLAG
+
+Verify the download by hand:
 
     shasum -a 256 -c SHA256SUMS
 
-Restore (with the wallet stopped, in your veil datadir):
+Or unpack it yourself, with the wallet stopped, into $RESTORE_TARGET:
 
     cat $NAME.tar.zst.part-* | zstd -d | tar -x
 
 Full restore and verification steps for every platform are in the README:
-https://github.com/$REPO#restoring-a-snapshot
+https://github.com/$REPO#easy-mode
 EOF
 
 if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-    gh release create "$TAG" -R "$REPO" \
-        --title "Veil mainnet snapshot, height $HEIGHT ($DATE_SHORT)" \
+    # testnet releases are never "latest", so the plain download URLs that
+    # restore.sh and the README use keep pointing at mainnet
+    LATEST_FLAG=""
+    [ "$TESTNET" = 1 ] && LATEST_FLAG="--latest=false"
+    # shellcheck disable=SC2086
+    gh release create "$TAG" -R "$REPO" $LATEST_FLAG \
+        --title "Veil $CHAIN_LABEL snapshot, height $HEIGHT ($DATE_SHORT)" \
         --notes-file "$NOTES"
 fi
 
