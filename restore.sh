@@ -112,11 +112,21 @@ dl() {
 # a stale copy is easy to end up with, since this script does not update itself
 # and people keep the one they downloaded. Never fatal: no network, no warning.
 check_version() {
-    local latest
-    latest=$(curl -fsSL --http1.1 --max-time 10 \
-        "https://raw.githubusercontent.com/$REPO/main/restore.sh" 2>/dev/null \
-        | grep -m1 '^SCRIPT_VERSION=' | tr -dc '0-9') || return 0
-    [ -n "$latest" ] || return 0
+    local body latest="" line
+    body=$(curl -fsSL --http1.1 --max-time 10 \
+        "https://raw.githubusercontent.com/$REPO/main/restore.sh" 2>/dev/null) || return 0
+    # parsed without a pipe on purpose: an early-exiting grep would SIGPIPE
+    # curl, and pipefail would turn that into a silent failure
+    while IFS= read -r line; do
+        case "$line" in
+            SCRIPT_VERSION=*)
+                latest=${line#SCRIPT_VERSION=}
+                latest=${latest%%[!0-9]*}
+                break ;;
+        esac
+    done <<EOF
+$body
+EOF
     case "$latest" in *[!0-9]*|'') return 0 ;; esac
     if [ "$latest" -gt "$SCRIPT_VERSION" ]; then
         echo
