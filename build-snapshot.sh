@@ -10,6 +10,7 @@
 #   ZSTD_LEVEL   compression level                 (default: 10)
 #   PART_SIZE    split size, must stay under 2GiB  (default: 1900m)
 #   STOP_TIMEOUT seconds to wait for shutdown      (default: 600)
+#   START_TIMEOUT seconds to wait for RPC on boot  (default: 900)
 #   START_CMD    custom node start command         (default: veild -daemon)
 #   STOP_CMD     custom node stop command          (default: veil-cli stop)
 #   GPG_KEY      key id to sign SHA256SUMS with    (default: unset, no signing)
@@ -45,6 +46,7 @@ REPO="${REPO:-ohcee/veil-snapshots}"
 ZSTD_LEVEL="${ZSTD_LEVEL:-10}"
 PART_SIZE="${PART_SIZE:-1900m}"
 STOP_TIMEOUT="${STOP_TIMEOUT:-600}"
+START_TIMEOUT="${START_TIMEOUT:-900}"
 START_CMD="${START_CMD:-}"
 STOP_CMD="${STOP_CMD:-}"
 GPG_KEY="${GPG_KEY:-}"
@@ -113,16 +115,24 @@ start_node() {
         # shellcheck disable=SC2086
         "$VEILD" -datadir="$DATADIR" $NET_ARG -daemon
     fi
+    # a big chain takes a while to load its block index before RPC answers:
+    # about 40s for 28GB on an M4, over 3 minutes on a modest VPS
     local waited=0
     while ! rpc getblockcount >/dev/null 2>&1; do
         waited=$((waited + 3))
-        if [ "$waited" -ge 180 ]; then
-            echo "WARNING: node started but RPC not answering yet, check it manually" >&2
+        if [ "$waited" -ge "$START_TIMEOUT" ]; then
+            echo "WARNING: node has not answered RPC after ${START_TIMEOUT}s." >&2
+            echo "         It may still be loading, but check it: the upload continues either way." >&2
             return 0
+        fi
+        if [ $((waited % 60)) = 0 ]; then
+            log "still waiting for the node to finish loading (${waited}s)"
         fi
         sleep 3
     done
     NODE_STOPPED=0
+    [ "$waited" -gt 0 ] && log "node answered RPC after ${waited}s"
+    return 0
 }
 
 cleanup() {
