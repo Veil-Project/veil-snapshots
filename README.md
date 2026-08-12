@@ -176,7 +176,9 @@ The hashes and totals should match the manifest exactly. Then start the wallet n
 
 ## How these get built
 
-[`build-snapshot.sh`](build-snapshot.sh) runs on a machine with a synced mainnet node. It freezes the tip, records the metadata above, stops the node, streams the four folders through `tar | zstd | split`, restarts the node, writes checksums and the manifest, and publishes everything here as a release with the GitHub CLI. The node is only down for the compression step.
+[`build-snapshot.sh`](build-snapshot.sh) runs on a machine with a synced node. It freezes the tip, records the metadata above, stops the node, streams the four folders through `tar | zstd | split`, restarts the node, writes checksums and the manifest, and publishes everything here as a release with the GitHub CLI. The node is only down for the compression step.
+
+Both chains are built this way and live in this repo side by side. Mainnet releases are tagged `mainnet-h<height>` and testnet ones `testnet-h<height>`. Only mainnet is ever marked "latest" on GitHub, so plain download links keep pointing at mainnet no matter how recently testnet was rebuilt.
 
 Useful flags while testing: `--dry-run` checks the environment and prints the capture metadata without touching anything, `--no-publish` builds the archive locally without creating a release, `--force` builds even when a recent release already exists. Settings like the data directory, repo, compression level and an optional GPG signing key are environment variables documented at the top of the script.
 
@@ -190,16 +192,18 @@ STOP_CMD="systemctl stop veild" START_CMD="systemctl start veild" ./build-snapsh
 
 ### Run a builder
 
-This pipeline is not meant to have an owner. Any team member with a synced mainnet node can run a builder, and several people running one at once is the point, that's the redundancy:
+This pipeline is not meant to have an owner. Anyone with a synced node can run a builder, on either chain, and several people running one at once is the point, that's the redundancy:
 
 1. Clone this repo on the machine with the node.
 2. `gh auth login` with a GitHub account that has write access to this repo.
-3. Test it with `./build-snapshot.sh --dry-run`.
+3. Test it with `./build-snapshot.sh --dry-run` (add `--testnet` for testnet).
 4. Install the schedule below, with your own day of the month.
 
-Before doing anything, the script checks the latest release here. If it is younger than 60 days (`MIN_AGE_DAYS`) it exits without touching the node. That makes shared scheduling safe: stagger each builder a few days apart (the 1st, the 3rd, the 5th), whoever fires first that quarter publishes, and everyone else's run sees the fresh release and stops. If the first builder's machine is dead that quarter, the next one picks it up automatically.
+Before doing anything, the script checks the newest release *for that chain*. If it is younger than 60 days (`MIN_AGE_DAYS`) it exits without touching the node, and a fresh mainnet release never blocks a testnet build or the other way round. That makes shared scheduling safe: stagger each builder a few days apart (the 1st, the 3rd, the 5th), whoever fires first that quarter publishes, and everyone else's run sees the fresh release and stops. If the first builder's machine is dead that quarter, the next one picks it up automatically.
 
-The node is only down for about the compression step, which took under 3 minutes on an M4 Mac mini for a 28GB chain. The upload afterwards runs with the node back up.
+The node is only down for about the compression step: under 3 minutes for a 28GB mainnet chain on an M4 Mac mini, about 8 minutes for a 14GB testnet chain on a 4 core VPS. The upload afterwards runs with the node back up.
+
+Rough sizes, so you know what disk you need. Mainnet is 28GB on disk and compresses to 24.6GB in 14 parts, testnet is 14GB and compresses to 9.8GB in 6 parts. Mainnet barely compresses because most of its bulk is RingCT and zerocoin proofs, which are already dense.
 
 ### Schedule
 
@@ -215,7 +219,21 @@ On a Linux box the equivalent crontab is:
 
 ```
 PATH=/usr/local/bin:/usr/bin:/bin
-17 3 1 1,4,7,10 * cd $HOME/veil-snapshots && ./build-snapshot.sh >> work/cron.log 2>&1
+17 3 1 1,4,7,10 * cd $HOME/veil-snapshots && git pull -q && ./build-snapshot.sh >> $HOME/veil-snapshot-cron.log 2>&1
 ```
 
-Either way the run logs to `work/cron.log`.
+The `git pull` keeps the builder tracking whatever is published here, so fixes reach it without anyone logging in.
+
+A node under systemd needs the unit passed in, and that means running as a user who can call `systemctl`. This is the entry currently building testnet:
+
+```
+PATH=/usr/local/bin:/usr/bin:/bin
+SHELL=/bin/bash
+17 3 1 1,4,7,10 * cd /root/veil-snapshots && git pull -q && VEIL_BIN=/home/veil DATADIR=/home/veil/.veil WORKDIR=/root/snapshot-work STOP_CMD="systemctl stop veild" START_CMD="systemctl start veild" ./build-snapshot.sh --testnet >> /root/veil-snapshot-cron.log 2>&1
+```
+
+Worth testing a scheduled entry in a stripped environment before trusting it, since cron gives you almost none of your usual shell:
+
+```bash
+env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=$HOME /bin/bash -c 'cd ~/veil-snapshots && ./build-snapshot.sh --dry-run'
+```
