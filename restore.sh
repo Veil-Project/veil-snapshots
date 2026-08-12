@@ -11,6 +11,10 @@
 
 set -euo pipefail
 
+# bumped whenever this script changes in a way users should pick up. The run
+# compares it against the published copy and says so if yours is behind.
+SCRIPT_VERSION=2
+
 REPO="ohcee/veil-snapshots"
 
 DATADIR=""
@@ -105,6 +109,26 @@ dl() {
     wget -c --tries=5 -O "$out" "$url"
 }
 
+# a stale copy is easy to end up with, since this script does not update itself
+# and people keep the one they downloaded. Never fatal: no network, no warning.
+check_version() {
+    local latest
+    latest=$(curl -fsSL --http1.1 --max-time 10 \
+        "https://raw.githubusercontent.com/$REPO/main/restore.sh" 2>/dev/null \
+        | grep -m1 '^SCRIPT_VERSION=' | tr -dc '0-9') || return 0
+    [ -n "$latest" ] || return 0
+    case "$latest" in *[!0-9]*|'') return 0 ;; esac
+    if [ "$latest" -gt "$SCRIPT_VERSION" ]; then
+        echo
+        say "heads up: you are running restore.sh v$SCRIPT_VERSION, v$latest is published."
+        say "this script does not update itself. To get the newest one:"
+        say "  curl -fsSL -o restore.sh https://raw.githubusercontent.com/$REPO/main/restore.sh"
+        say "continuing with your copy in 5 seconds, Ctrl-C to stop and update"
+        echo
+        sleep 5
+    fi
+}
+
 confirm() {
     [ "$YES" = 1 ] && return 0
     [ -t 0 ] || die "not running in a terminal, rerun with --yes to skip prompts"
@@ -134,6 +158,8 @@ fi
 if [ "$WALLET_RUNNING" = 1 ] && [ "$CHECK" = 0 ]; then
     die "a Veil wallet or node is running, close it completely first"
 fi
+
+check_version
 
 mkdir -p "$WORK"
 say "fetching the release file list"

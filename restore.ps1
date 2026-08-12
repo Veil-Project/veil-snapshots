@@ -21,6 +21,10 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+# bumped whenever this script changes in a way users should pick up. The run
+# compares it against the published copy and says so if yours is behind.
+$ScriptVersion = 2
+
 $Repo = 'ohcee/veil-snapshots'
 if ($Tag) { $Base = "https://github.com/$Repo/releases/download/$Tag" }
 else      { $Base = "https://github.com/$Repo/releases/latest/download" }
@@ -44,6 +48,27 @@ function Get-Sha256([string]$path) {
     (Get-FileHash -Algorithm SHA256 -Path $path).Hash.ToLower()
 }
 
+# a stale copy is easy to end up with, since this script does not update itself
+# and people keep the one they downloaded. Never fatal: no network, no warning.
+function Check-Version {
+    try {
+        $remote = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 `
+            -Uri "https://raw.githubusercontent.com/$Repo/main/restore.ps1").Content
+        if ($remote -match '(?m)^\$ScriptVersion\s*=\s*(\d+)') {
+            $latest = [int]$Matches[1]
+            if ($latest -gt $ScriptVersion) {
+                Write-Host ""
+                Say "heads up: you are running restore.ps1 v$ScriptVersion, v$latest is published."
+                Say "this script does not update itself. To get the newest one:"
+                Say "  iwr -useb https://raw.githubusercontent.com/$Repo/main/restore.ps1 -OutFile restore.ps1"
+                Say "continuing with your copy in 5 seconds, Ctrl-C to stop and update"
+                Write-Host ""
+                Start-Sleep -Seconds 5
+            }
+        }
+    } catch { }
+}
+
 # ---- preflight ----------------------------------------------------------
 
 if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
@@ -54,6 +79,8 @@ $running = Get-Process -Name veild, veil-qt -ErrorAction SilentlyContinue
 if ($running -and -not $Check) {
     Die "a Veil wallet or node is running, close it completely first"
 }
+
+Check-Version
 
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Say "fetching the release file list"
