@@ -115,6 +115,11 @@ start_node() {
         # shellcheck disable=SC2086
         "$VEILD" -datadir="$DATADIR" $NET_ARG -daemon
     fi
+    # the start command returned, so the node is running again and the exit
+    # trap must not try to start it a second time. Clear the flag here rather
+    # than after the wait below, which can bail out early on a slow loader.
+    NODE_STOPPED=0
+
     # a big chain takes a while to load its block index before RPC answers:
     # about 40s for 28GB on an M4, over 3 minutes on a modest VPS
     local waited=0
@@ -130,7 +135,6 @@ start_node() {
         fi
         sleep 3
     done
-    NODE_STOPPED=0
     [ "$waited" -gt 0 ] && log "node answered RPC after ${waited}s"
     return 0
 }
