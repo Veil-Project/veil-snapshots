@@ -225,7 +225,7 @@ Rough sizes, so you know what disk you need. Mainnet is 28GB on disk and compres
 
 Snapshots are built quarterly, on the 1st of January, April, July and October. A few months of staleness is fine, the wallet just syncs the tail.
 
-On macOS the schedule runs as a LaunchAgent, since macOS blocks `crontab` unless the terminal has Full Disk Access. The plist lives at `~/Library/LaunchAgents/org.veil.snapshots.plist` (see [launchd.plist](org.veil.snapshots.plist) in this repo) and loads with:
+On macOS use a LaunchAgent rather than cron, since macOS blocks `crontab` unless the terminal has Full Disk Access. Copy [`org.veil.snapshots.plist`](org.veil.snapshots.plist) from this repo to `~/Library/LaunchAgents/`, edit the paths inside it to match your setup, then load it with:
 
 ```bash
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.veil.snapshots.plist
