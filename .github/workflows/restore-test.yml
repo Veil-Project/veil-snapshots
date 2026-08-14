@@ -1,0 +1,111 @@
+name: restore scripts
+
+# Runs the restore scripts against the tiny synthetic release built by
+# tests/make-test-release.sh, on all three platforms. Runners have nowhere
+# near the disk for a real snapshot, so the fixture exercises every code
+# path (download, checksums, joining parts, zstd, extract) at a few hundred
+# kilobytes instead of tens of gigabytes.
+
+on:
+  push:
+    branches: [main]
+    paths: ['restore.sh', 'restore.ps1', '.github/workflows/restore-test.yml']
+  pull_request:
+    paths: ['restore.sh', 'restore.ps1', '.github/workflows/restore-test.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install zstd
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq zstd
+          else
+            brew list zstd >/dev/null 2>&1 || brew install zstd
+          fi
+
+      - name: check mode touches nothing
+        run: bash restore.sh --tag test-h0 --datadir "$RUNNER_TEMP/veil" --check
+
+      - name: restore the fixture
+        run: bash restore.sh --tag test-h0 --datadir "$RUNNER_TEMP/veil" --yes
+
+      - name: the four folders arrived intact
+        run: |
+          cd "$RUNNER_TEMP/veil"
+          for d in blocks chainstate indexes zerocoin; do
+            grep -q "veil-snapshot-restore-test $d" "$d/marker.txt" \
+              || { echo "missing or wrong marker in $d"; exit 1; }
+          done
+          # the archive spans several parts, so a bad join corrupts this file
+          [ "$(wc -c < blocks/blk00000.dat)" = 200000 ] \
+            || { echo "blk00000.dat is the wrong size, parts joined badly"; exit 1; }
+          echo "all four folders restored and intact"
+
+      - name: downloads are cleaned up afterwards
+        run: |
+          [ ! -d veil-snapshot-work ] || { echo "work dir was left behind"; exit 1; }
+          echo "work dir removed"
+
+      - name: rerunning is safe and prompts before replacing
+        run: |
+          bash restore.sh --tag test-h0 --datadir "$RUNNER_TEMP/veil" --yes
+          grep -q "veil-snapshot-restore-test blocks" "$RUNNER_TEMP/veil/blocks/marker.txt"
+          echo "second run replaced cleanly"
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: check mode touches nothing
+        shell: pwsh
+        run: .\restore.ps1 -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Check
+
+      - name: restore the fixture
+        shell: pwsh
+        run: .\restore.ps1 -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Yes
+
+      - name: the four folders arrived intact
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP\veil"
+          foreach ($d in 'blocks','chainstate','indexes','zerocoin') {
+            $marker = Join-Path $root "$d\marker.txt"
+            if (-not (Test-Path $marker)) { throw "missing marker in $d" }
+            if ((Get-Content $marker -Raw) -notmatch "veil-snapshot-restore-test $d") {
+              throw "wrong marker content in $d"
+            }
+          }
+          # the archive spans several parts, and Windows joins them with a
+          # separate step, so a bad join shows up as a wrong size here
+          $size = (Get-Item (Join-Path $root 'blocks\blk00000.dat')).Length
+          if ($size -ne 200000) { throw "blk00000.dat is $size bytes, parts joined badly" }
+          Write-Host "all four folders restored and intact"
+
+      - name: downloads are cleaned up afterwards
+        shell: pwsh
+        run: |
+          if (Test-Path veil-snapshot-work) { throw "work dir was left behind" }
+          Write-Host "work dir removed"
+
+      - name: rerunning is safe and prompts before replacing
+        shell: pwsh
+        run: |
+          .\restore.ps1 -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Yes
+          $marker = Join-Path "$env:RUNNER_TEMP\veil" 'blocks\marker.txt'
+          if ((Get-Content $marker -Raw) -notmatch 'veil-snapshot-restore-test blocks') {
+            throw "second run left the folder wrong"
+          }
+          Write-Host "second run replaced cleanly"
