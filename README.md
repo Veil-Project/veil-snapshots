@@ -1,8 +1,10 @@
-# Veil mainnet snapshots
+# Veil blockchain snapshots
 
-Quarterly snapshots of the Veil mainnet blockchain so a fresh wallet can skip syncing from genesis. Download the latest release, verify it, unpack it into your data directory, and the wallet only has to sync the weeks since the snapshot instead of years of history.
+Quarterly snapshots of the Veil blockchain, mainnet and testnet, so a fresh wallet can skip syncing from genesis. Download the latest release, verify it, unpack it into your data directory, and the wallet only has to sync the weeks since the snapshot instead of years of history.
 
-Each release contains the `blocks`, `chainstate`, `indexes` and `zerocoin` folders from a fully synced node, compressed with zstd and split into parts under 2GB. Snapshots never contain wallets or keys, your funds are not involved in any way.
+Hosting costs nothing and there is no server to keep alive. The snapshots are ordinary GitHub release assets, built and published automatically by nodes that people already run.
+
+Each release contains the `blocks`, `chainstate`, `indexes` and `zerocoin` folders from a fully synced node, compressed with zstd and split into parts under 2GB. Snapshots never contain wallets or keys, your funds are not involved in any way, and every release ships checksums plus a manifest so you can prove the chain state is genuine rather than trusting whoever built it.
 
 ## Easy mode
 
