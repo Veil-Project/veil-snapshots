@@ -288,7 +288,10 @@ fi
 
 # ---- archive ------------------------------------------------------------
 
-OUT="$WORKDIR/$NAME"
+# named after the tag, not the file prefix, so that a torrent created from
+# this directory gets a name that lines up with the release download URLs.
+# See "Seeding a torrent" in the README.
+OUT="$WORKDIR/$TAG"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 

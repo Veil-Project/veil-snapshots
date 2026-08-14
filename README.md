@@ -196,15 +196,23 @@ By default the build deletes its parts once they are on GitHub. Pass `--keep` to
 
 The useful trick is that the release download URLs work as **webseeds**, so a torrent made from these files pulls from GitHub as well as from any peers. People with a torrent client get the resilience and resume behaviour of BitTorrent, and the swarm never dies even with zero seeders, because GitHub is always serving.
 
+Two details decide whether those webseeds actually work, and both are easy to get wrong.
+
+A torrent's name comes from the directory you point the tool at, so building from `.` produces a torrent literally named `.`, which clients turn into junk filenames. Point it at the directory by name from the parent instead.
+
+And for a multi-file torrent, a client requests `webseed + torrent_name + / + filename`. Release assets live at `.../releases/download/<tag>/<file>`, so the torrent's directory has to be named exactly the **tag** and the webseed has to stop at `.../releases/download/`. Get either wrong and every webseed request 404s, leaving a torrent that only works while a human is seeding it. `--keep` names the work directory after the tag for exactly this reason, so run the command from its parent:
+
 ```bash
-cd work/veil-mainnet-h<height>
-transmission-create -o veil-mainnet-h<height>.torrent \
-    -w https://github.com/<owner>/veil-snapshots/releases/download/mainnet-h<height>/ \
+cd work
+transmission-create -o mainnet-h<height>.torrent \
+    -w https://github.com/<owner>/veil-snapshots/releases/download/ \
     -t udp://tracker.opentrackr.org:1337/announce \
-    .
+    mainnet-h<height>
 ```
 
-`mktorrent -w <url>` does the same thing if you prefer it. Attach the resulting `.torrent` to the release so people can find it next to the parts it describes.
+`mktorrent -w <url>` works the same way. Worth confirming before you share it: load the torrent with no peers available and check it downloads from the webseed alone.
+
+Attach the resulting `.torrent` to the release so people find it beside the parts it describes. A torrent can carry several `-w` webseeds, so if more than one person publishes the same snapshot, one torrent can pull from all of their releases at once.
 
 ### Run a builder
 
