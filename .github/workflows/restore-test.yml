@@ -48,9 +48,11 @@ jobs:
             grep -q "veil-snapshot-restore-test $d" "$d/marker.txt" \
               || { echo "missing or wrong marker in $d"; exit 1; }
           done
-          # the archive spans several parts, so a bad join corrupts this file
-          [ "$(wc -c < blocks/blk00000.dat)" = 200000 ] \
-            || { echo "blk00000.dat is the wrong size, parts joined badly"; exit 1; }
+          # the archive spans several parts, so a bad join corrupts this file.
+          # bsd wc pads its output with spaces and gnu wc does not, hence tr
+          size=$(wc -c < blocks/blk00000.dat | tr -d ' ')
+          [ "$size" = 200000 ] \
+            || { echo "blk00000.dat is $size bytes, not 200000, parts joined badly"; exit 1; }
           echo "all four folders restored and intact"
 
       - name: downloads are cleaned up afterwards
