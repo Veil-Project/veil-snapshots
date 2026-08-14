@@ -4,6 +4,8 @@ Quarterly snapshots of the Veil blockchain, mainnet and testnet, so a fresh wall
 
 Hosting costs nothing and there is no server to keep alive. The snapshots are ordinary GitHub release assets, built and published automatically by nodes that people already run.
 
+The restore scripts are [tested on Windows, macOS and Linux](../../actions/workflows/restore-test.yml) on every change, against a small fixture release that exercises the whole path from download through checksums to unpacking.
+
 Each release contains the `blocks`, `chainstate`, `indexes` and `zerocoin` folders from a fully synced node, compressed with zstd and split into parts under 2GB. Snapshots never contain wallets or keys, your funds are not involved in any way, and every release ships checksums plus a manifest so you can prove the chain state is genuine rather than trusting whoever built it.
 
 ## Easy mode
