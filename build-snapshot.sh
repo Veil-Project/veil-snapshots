@@ -493,15 +493,16 @@ Full restore and verification steps for every platform are in the README:
 https://github.com/$REPO#easy-mode
 EOF
 
+# Created as a draft on purpose. Uploading 25GB takes half an hour, and a
+# release that is public while it is still filling up is worse than no release
+# at all: it shows as the latest one, restore.sh points at it, and the
+# checksums it needs are not there yet. Drafts are invisible to everyone until
+# the last file lands, so there is no window to get caught in.
 if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-    # testnet releases are never "latest", so the plain download URLs that
-    # restore.sh and the README use keep pointing at mainnet
-    LATEST_FLAG=""
-    [ "$TESTNET" = 1 ] && LATEST_FLAG="--latest=false"
-    # shellcheck disable=SC2086
-    gh release create "$TAG" -R "$REPO" $LATEST_FLAG \
+    gh release create "$TAG" -R "$REPO" --draft \
         --title "Veil $CHAIN_LABEL snapshot, height $HEIGHT ($DATE_SHORT)" \
         --notes-file "$NOTES"
+    log "created $TAG as a draft, it goes public once every file is uploaded"
 fi
 
 UPLOADS="SHA256SUMS manifest.json"
@@ -516,6 +517,14 @@ for f in "$NAME".tar.zst.part-* $UPLOADS; do
     done
     log "uploaded $f"
 done
+
+# everything is up, so make it real. testnet is never flagged "latest", which
+# keeps the plain download URLs that restore.sh and the README use on mainnet
+LATEST_FLAG="--latest"
+[ "$TESTNET" = 1 ] && LATEST_FLAG="--latest=false"
+# shellcheck disable=SC2086
+gh release edit "$TAG" -R "$REPO" --draft=false $LATEST_FLAG >/dev/null
+log "release is now public"
 
 URL=$(gh release view "$TAG" -R "$REPO" --json url -q .url)
 log "release published: $URL"

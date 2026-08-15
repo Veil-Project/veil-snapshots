@@ -182,6 +182,8 @@ The hashes and totals should match the manifest exactly. Then start the wallet n
 
 [`build-snapshot.sh`](build-snapshot.sh) runs on a machine with a synced node. It freezes the tip, records the metadata above, stops the node, streams the four folders through `tar | zstd | split`, restarts the node, writes checksums and the manifest, and publishes everything here as a release with the GitHub CLI. The node is only down for the compression step.
 
+A release is created as a draft and only made public once the last file is uploaded. Uploading 25GB takes half an hour, and a release that goes public while it is still filling up is worse than no release at all: it shows as the newest one, `restore.sh` points at it, and the checksums it needs have not arrived yet. Drafts are invisible until they are finished, so there is no window to get caught in.
+
 Both chains are built this way and live in this repo side by side. Mainnet releases are tagged `mainnet-h<height>` and testnet ones `testnet-h<height>`. Only mainnet is ever marked "latest" on GitHub, so plain download links keep pointing at mainnet no matter how recently testnet was rebuilt.
 
 Useful flags while testing: `--dry-run` checks the environment and prints the capture metadata without touching anything, `--no-publish` builds the archive locally without creating a release, `--force` builds even when a recent release already exists. Settings like the data directory, repo, compression level and an optional GPG signing key are environment variables documented at the top of the script.
