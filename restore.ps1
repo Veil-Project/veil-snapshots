@@ -23,9 +23,9 @@ $ProgressPreference = 'SilentlyContinue'
 
 # bumped whenever this script changes in a way users should pick up. The run
 # compares it against the published copy and says so if yours is behind.
-$ScriptVersion = 2
+$ScriptVersion = 3
 
-$Repo = 'ohcee/veil-snapshots'
+$Repo = 'Veil-Project/veil-snapshots'
 if ($Tag) { $Base = "https://github.com/$Repo/releases/download/$Tag" }
 else      { $Base = "https://github.com/$Repo/releases/latest/download" }
 $Work = Join-Path (Get-Location) 'veil-snapshot-work'

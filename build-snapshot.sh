@@ -6,7 +6,7 @@
 #   VEIL_BIN     dir holding veild and veil-cli    (default: ~/dev/veil-bin)
 #   DATADIR      veil data directory               (default: platform default)
 #   WORKDIR     scratch space for the build        (default: work/ next to script)
-#   REPO         github repo that hosts releases   (default: ohcee/veil-snapshots)
+#   REPO         github repo that hosts releases   (default: Veil-Project/veil-snapshots)
 #   ZSTD_LEVEL   compression level                 (default: 10)
 #   PART_SIZE    split size, must stay under 2GiB  (default: 1900m)
 #   STOP_TIMEOUT seconds to wait for shutdown      (default: 600)
@@ -47,7 +47,7 @@ else
 fi
 DATADIR="${DATADIR:-$DEFAULT_DATADIR}"
 WORKDIR="${WORKDIR:-$SCRIPT_DIR/work}"
-REPO="${REPO:-ohcee/veil-snapshots}"
+REPO="${REPO:-Veil-Project/veil-snapshots}"
 ZSTD_LEVEL="${ZSTD_LEVEL:-10}"
 PART_SIZE="${PART_SIZE:-1900m}"
 STOP_TIMEOUT="${STOP_TIMEOUT:-600}"

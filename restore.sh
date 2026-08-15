@@ -15,9 +15,9 @@ set -euo pipefail
 
 # bumped whenever this script changes in a way users should pick up. The run
 # compares it against the published copy and says so if yours is behind.
-SCRIPT_VERSION=2
+SCRIPT_VERSION=3
 
-REPO="ohcee/veil-snapshots"
+REPO="Veil-Project/veil-snapshots"
 # the version check always asks the default publisher, so a mirror that lags
 # behind cannot tell you your script is current when it is not
 HOME_REPO="$REPO"

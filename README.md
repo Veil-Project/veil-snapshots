@@ -35,7 +35,7 @@ Installing aria2 is worth it. The script picks it up automatically and it makes 
 ### Step 2, download the script and test your setup
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.sh && bash restore.sh --check
+curl -fsSLO https://raw.githubusercontent.com/Veil-Project/veil-snapshots/main/restore.sh && bash restore.sh --check
 ```
 
 That downloads nothing big. It just confirms your tools, disk space and data directory are ready, and tells you what it would fetch. Fix anything it complains about before moving on.
@@ -67,7 +67,7 @@ It fetches the newest testnet release and unpacks into the `testnet4` folder ins
 In PowerShell, from a folder where you want the download to land:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/ohcee/veil-snapshots/main/restore.ps1 -OutFile restore.ps1; Set-ExecutionPolicy -Scope Process Bypass -Force; .\restore.ps1 -Check
+iwr -useb https://raw.githubusercontent.com/Veil-Project/veil-snapshots/main/restore.ps1 -OutFile restore.ps1; Set-ExecutionPolicy -Scope Process Bypass -Force; .\restore.ps1 -Check
 ```
 
 That is the same setup test as above. When it looks good, close your wallet and run the real thing:
@@ -87,7 +87,7 @@ Grab every file from the [latest release](../../releases/latest): all the `.tar.
 Or from a terminal with the [GitHub CLI](https://cli.github.com):
 
 ```bash
-gh release download -R ohcee/veil-snapshots -p '*'
+gh release download -R Veil-Project/veil-snapshots -p '*'
 ```
 
 ## Verifying the download
