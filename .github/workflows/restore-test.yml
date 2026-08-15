@@ -36,10 +36,10 @@ jobs:
           fi
 
       - name: check mode touches nothing
-        run: bash restore.sh --tag test-h0 --datadir "$RUNNER_TEMP/veil" --check
+        run: bash restore.sh --repo "$GITHUB_REPOSITORY" --tag test-h0 --datadir "$RUNNER_TEMP/veil" --check
 
       - name: restore the fixture
-        run: bash restore.sh --tag test-h0 --datadir "$RUNNER_TEMP/veil" --yes
+        run: bash restore.sh --repo "$GITHUB_REPOSITORY" --tag test-h0 --datadir "$RUNNER_TEMP/veil" --yes
 
       - name: the four folders arrived intact
         run: |
@@ -62,7 +62,7 @@ jobs:
 
       - name: rerunning is safe and prompts before replacing
         run: |
-          bash restore.sh --tag test-h0 --datadir "$RUNNER_TEMP/veil" --yes
+          bash restore.sh --repo "$GITHUB_REPOSITORY" --tag test-h0 --datadir "$RUNNER_TEMP/veil" --yes
           grep -q "veil-snapshot-restore-test blocks" "$RUNNER_TEMP/veil/blocks/marker.txt"
           echo "second run replaced cleanly"
 
@@ -73,11 +73,11 @@ jobs:
 
       - name: check mode touches nothing
         shell: pwsh
-        run: .\restore.ps1 -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Check
+        run: .\restore.ps1 -Repo "$env:GITHUB_REPOSITORY" -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Check
 
       - name: restore the fixture
         shell: pwsh
-        run: .\restore.ps1 -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Yes
+        run: .\restore.ps1 -Repo "$env:GITHUB_REPOSITORY" -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Yes
 
       - name: the four folders arrived intact
         shell: pwsh
@@ -105,7 +105,7 @@ jobs:
       - name: rerunning is safe and prompts before replacing
         shell: pwsh
         run: |
-          .\restore.ps1 -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Yes
+          .\restore.ps1 -Repo "$env:GITHUB_REPOSITORY" -Tag test-h0 -DataDir "$env:RUNNER_TEMP\veil" -Yes
           $marker = Join-Path "$env:RUNNER_TEMP\veil" 'blocks\marker.txt'
           if ((Get-Content $marker -Raw) -notmatch 'veil-snapshot-restore-test blocks') {
             throw "second run left the folder wrong"

@@ -7,12 +7,14 @@
 # Options:
 #   -DataDir <path>   target data directory (default: %APPDATA%\Veil)
 #   -Tag <tag>        restore a specific release instead of the latest
+#   -Repo <owner/name>  pull from a mirror instead of the default publisher
 #   -Check            verify tools and show the plan, download nothing big
 #   -Yes              no prompts, assume yes
 
 param(
     [string]$DataDir = "$env:APPDATA\Veil",
     [string]$Tag = "",
+    [string]$Repo = "",
     [switch]$Check,
     [switch]$Yes
 )
@@ -25,7 +27,12 @@ $ProgressPreference = 'SilentlyContinue'
 # compares it against the published copy and says so if yours is behind.
 $ScriptVersion = 3
 
-$Repo = 'Veil-Project/veil-snapshots'
+# -Repo pulls from a mirror instead of the default publisher. The version check
+# below always asks the default, so a mirror that lags behind cannot tell you
+# your script is current when it is not.
+$HomeRepo = 'Veil-Project/veil-snapshots'
+if (-not $Repo) { $Repo = $HomeRepo }
+if ($Repo -notmatch '^[^/]+/[^/]+$') { Write-Host "ERROR: -Repo wants owner/name, got '$Repo'" -ForegroundColor Red; exit 2 }
 if ($Tag) { $Base = "https://github.com/$Repo/releases/download/$Tag" }
 else      { $Base = "https://github.com/$Repo/releases/latest/download" }
 $Work = Join-Path (Get-Location) 'veil-snapshot-work'
@@ -53,14 +60,14 @@ function Get-Sha256([string]$path) {
 function Check-Version {
     try {
         $remote = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 `
-            -Uri "https://raw.githubusercontent.com/$Repo/main/restore.ps1").Content
+            -Uri "https://raw.githubusercontent.com/$HomeRepo/main/restore.ps1").Content
         if ($remote -match '(?m)^\$ScriptVersion\s*=\s*(\d+)') {
             $latest = [int]$Matches[1]
             if ($latest -gt $ScriptVersion) {
                 Write-Host ""
                 Say "heads up: you are running restore.ps1 v$ScriptVersion, v$latest is published."
                 Say "this script does not update itself. To get the newest one:"
-                Say "  iwr -useb https://raw.githubusercontent.com/$Repo/main/restore.ps1 -OutFile restore.ps1"
+                Say "  iwr -useb https://raw.githubusercontent.com/$HomeRepo/main/restore.ps1 -OutFile restore.ps1"
                 Say "continuing with your copy in 5 seconds, Ctrl-C to stop and update"
                 Write-Host ""
                 Start-Sleep -Seconds 5
