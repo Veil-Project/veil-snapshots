@@ -28,6 +28,9 @@
 #   --force       build even when a recent release already exists
 #   --keep        leave the built parts on disk after uploading, for seeding
 #                 a torrent or copying to a mirror
+#   --publish-only  upload a build that is already sitting in the work dir,
+#                 without touching the node. Use this when the archive was
+#                 fine and only the upload failed.
 #
 # On a node managed by systemd, point the stop and start commands at the unit:
 #   STOP_CMD="systemctl stop veild" START_CMD="systemctl start veild" ./build-snapshot.sh --testnet
@@ -64,6 +67,7 @@ PUBLISH=1
 FORCE=0
 TESTNET=0
 KEEP=0
+PUBLISH_ONLY=0
 for arg in "$@"; do
     case "$arg" in
         --testnet)    TESTNET=1 ;;
@@ -71,9 +75,18 @@ for arg in "$@"; do
         --no-publish) PUBLISH=0 ;;
         --force)      FORCE=1 ;;
         --keep)       KEEP=1 ;;
+        --publish-only) PUBLISH_ONLY=1 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
+
+# --publish-only skips the build entirely, so flags that only mean something
+# during a build would be silently ignored, and silently ignoring --no-publish
+# means uploading when you asked not to
+if [ "$PUBLISH_ONLY" = 1 ]; then
+    [ "$PUBLISH" = 1 ] || { echo "--publish-only and --no-publish contradict each other" >&2; exit 2; }
+    [ "$DRY_RUN" = 0 ] || { echo "--publish-only and --dry-run contradict each other" >&2; exit 2; }
+fi
 
 # testnet lives in a subfolder of the datadir and answers to a different
 # chain name, everything else about the build is identical
@@ -204,31 +217,39 @@ stop_node() {
 
 # ---- preflight ----------------------------------------------------------
 
-for tool in zstd jq tar split; do
+for tool in jq; do
     command -v "$tool" >/dev/null 2>&1 || die "missing tool: $tool"
 done
-[ -x "$CLI" ] || die "veil-cli not found at $CLI (set VEIL_BIN)"
-[ -x "$VEILD" ] || die "veild not found at $VEILD (set VEIL_BIN)"
-[ -d "$DATADIR" ] || die "datadir not found: $DATADIR"
 
-if pgrep -x veil-qt >/dev/null 2>&1; then
-    die "veil-qt is running and holds the datadir, close the GUI wallet first"
-fi
+# --publish-only never reads the datadir or talks to the node, so none of the
+# checks below apply to it
+if [ "$PUBLISH_ONLY" = 0 ]; then
+    for tool in zstd tar split; do
+        command -v "$tool" >/dev/null 2>&1 || die "missing tool: $tool"
+    done
+    [ -x "$CLI" ] || die "veil-cli not found at $CLI (set VEIL_BIN)"
+    [ -x "$VEILD" ] || die "veild not found at $VEILD (set VEIL_BIN)"
+    [ -d "$DATADIR" ] || die "datadir not found: $DATADIR"
 
-[ -d "$CHAIN_DIR" ] || die "$CHAIN_LABEL directory not found: $CHAIN_DIR"
-
-FOLDERS=""
-for f in $REQUIRED_FOLDERS; do
-    [ -d "$CHAIN_DIR/$f" ] || die "required folder missing from $CHAIN_LABEL dir: $f"
-    FOLDERS="$FOLDERS $f"
-done
-for f in $OPTIONAL_FOLDERS; do
-    if [ -d "$CHAIN_DIR/$f" ]; then
-        FOLDERS="$FOLDERS $f"
-    else
-        log "note: optional folder $f not present, skipping"
+    if pgrep -x veil-qt >/dev/null 2>&1; then
+        die "veil-qt is running and holds the datadir, close the GUI wallet first"
     fi
-done
+
+    [ -d "$CHAIN_DIR" ] || die "$CHAIN_LABEL directory not found: $CHAIN_DIR"
+
+    FOLDERS=""
+    for f in $REQUIRED_FOLDERS; do
+        [ -d "$CHAIN_DIR/$f" ] || die "required folder missing from $CHAIN_LABEL dir: $f"
+        FOLDERS="$FOLDERS $f"
+    done
+    for f in $OPTIONAL_FOLDERS; do
+        if [ -d "$CHAIN_DIR/$f" ]; then
+            FOLDERS="$FOLDERS $f"
+        else
+            log "note: optional folder $f not present, skipping"
+        fi
+    done
+fi
 
 if [ "$PUBLISH" = 1 ] && [ "$DRY_RUN" = 0 ]; then
     command -v gh >/dev/null 2>&1 || die "gh cli not installed (or use --no-publish)"
@@ -238,7 +259,10 @@ if [ "$DRY_RUN" = 1 ] && ! gh auth status >/dev/null 2>&1; then
     log "note: gh not authenticated yet, publishing would fail"
 fi
 
-if [ "$PUBLISH" = 1 ] && [ "$FORCE" = 0 ] && gh auth status >/dev/null 2>&1; then
+# the age check exists to avoid pointless rebuilds, and --publish-only is not
+# a rebuild, so it does not apply there
+if [ "$PUBLISH" = 1 ] && [ "$FORCE" = 0 ] && [ "$PUBLISH_ONLY" = 0 ] \
+    && gh auth status >/dev/null 2>&1; then
     # only this chain's releases count, so mainnet and testnet never block each other
     latest=$(gh release list -R "$REPO" --limit 100 --json tagName,publishedAt \
         -q "[.[] | select(.tagName | startswith(\"${CHAIN_LABEL}-\"))] | .[0].publishedAt" 2>/dev/null || true)
@@ -256,6 +280,10 @@ if [ "$PUBLISH" = 1 ] && [ "$FORCE" = 0 ] && gh auth status >/dev/null 2>&1; the
         fi
     fi
 fi
+
+if [ "$PUBLISH_ONLY" = 1 ]; then
+    log "publish only, skipping every node and disk check"
+else
 
 rpc getblockcount >/dev/null 2>&1 || die "node not reachable via RPC at $DATADIR"
 
@@ -282,6 +310,45 @@ if [ "$AVAIL_KB" -lt "$NEED_KB" ]; then
     die "not enough disk in $WORKDIR: need ~$((NEED_KB / 1048576))GB, have $((AVAIL_KB / 1048576))GB"
 fi
 log "preflight ok: $CHAIN_LABEL synced at $BLOCKS, data $((DATA_KB / 1048576))GB, folders:$FOLDERS"
+
+fi  # end of the node and disk checks
+
+# ---- reuse an existing build --------------------------------------------
+
+# An upload can fail long after the expensive part is over: no write access to
+# the repo, a token problem, a dropped connection. The parts are still sitting
+# in the work dir, so retry the upload rather than stopping the node and
+# recompressing tens of gigabytes for nothing.
+if [ "$PUBLISH_ONLY" = 1 ]; then
+    OUT=$(ls -dt "$WORKDIR/$CHAIN_LABEL"-h* 2>/dev/null | head -1) || true
+    [ -n "$OUT" ] && [ -d "$OUT" ] \
+        || die "no finished $CHAIN_LABEL build found in $WORKDIR"
+    [ -f "$OUT/manifest.json" ] && [ -f "$OUT/SHA256SUMS" ] \
+        || die "$OUT looks incomplete, it has no manifest.json or SHA256SUMS"
+
+    TAG=$(basename "$OUT")
+    NAME=$(jq -r .name "$OUT/manifest.json")
+    HEIGHT=$(jq -r .height "$OUT/manifest.json")
+    BESTHASH=$(jq -r .bestblockhash "$OUT/manifest.json")
+    SUBVERSION=$(jq -r .node "$OUT/manifest.json")
+    FOLDERS=$(jq -r '.folders | join(" ")' "$OUT/manifest.json")
+    TOTAL_BYTES=$(jq -r .compressed_bytes "$OUT/manifest.json")
+    TOTAL_GB=$(echo "$TOTAL_BYTES" | awk '{printf "%.1f", $1 / 1073741824}')
+    PART_COUNT=$(find "$OUT" -name "$NAME.tar.zst.part-*" | wc -l | tr -d ' ')
+    [ "$PART_COUNT" -gt 0 ] || die "$OUT has a manifest but no parts"
+
+    cd "$OUT"
+    log "publishing the existing build in $OUT"
+    log "$TAG, $PART_COUNT parts, ${TOTAL_GB}GB, nothing on the node will be touched"
+    # every checksum is re-verified, because a half written part from an
+    # interrupted build would otherwise be uploaded as if it were fine
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum -c SHA256SUMS >/dev/null || die "checksums do not match, rebuild instead"
+    else
+        shasum -a 256 -c SHA256SUMS >/dev/null || die "checksums do not match, rebuild instead"
+    fi
+    log "all files verified"
+else
 
 # ---- capture metadata ---------------------------------------------------
 
@@ -387,6 +454,8 @@ if [ "$PUBLISH" = 0 ]; then
     log "publish skipped, files are in $OUT"
     exit 0
 fi
+
+fi  # end of the normal build path, --publish-only rejoins here
 
 # ---- publish ------------------------------------------------------------
 

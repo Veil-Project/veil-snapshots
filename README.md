@@ -186,6 +186,29 @@ Both chains are built this way and live in this repo side by side. Mainnet relea
 
 Useful flags while testing: `--dry-run` checks the environment and prints the capture metadata without touching anything, `--no-publish` builds the archive locally without creating a release, `--force` builds even when a recent release already exists. Settings like the data directory, repo, compression level and an optional GPG signing key are environment variables documented at the top of the script.
 
+If the upload fails after the archive is built, which happens for boring reasons like a dropped connection or missing write access, do not run the whole thing again. The parts are still in the work directory:
+
+```bash
+./build-snapshot.sh --publish-only
+```
+
+That picks up the newest finished build for that chain, re-verifies every checksum, and uploads it. It never touches the node, so there is no second outage and no recompressing tens of gigabytes.
+
+One error worth knowing, because gh reports it misleadingly:
+
+```
+! Failed to create release, "workflow" scope may be required.
+To request it, run: gh auth refresh -h github.com -s workflow
+```
+
+That almost always means you lack **write access to the target repo**, not that your token is missing a scope. Re-authenticating will appear to succeed and change nothing. Check what you actually have:
+
+```bash
+gh api repos/<owner>/<repo> -q .permissions
+```
+
+If `push` is `false`, no token will help, someone with admin on that repo has to grant you write access. Then rerun with `--publish-only`.
+
 Add `--testnet` to snapshot testnet instead. It reads the `testnet4` folder and publishes under a `testnet-` tag. Each chain's freshness is tracked separately, so a recent mainnet release never stops a testnet build.
 
 If the node is managed by systemd, hand the script the unit rather than letting it stop the process directly, otherwise `Restart=on-failure` can relaunch the node in the middle of the archive:
