@@ -156,8 +156,11 @@ cleanup() {
 trap cleanup EXIT
 
 stop_node() {
-    local pid=""
+    local pid="" log="$CHAIN_DIR/debug.log" log_offset=0
     [ -f "$CHAIN_DIR/veild.pid" ] && pid=$(cat "$CHAIN_DIR/veild.pid" 2>/dev/null || true)
+    # remember where the log ends, so afterwards we only read what this
+    # shutdown wrote and not a clean shutdown from some earlier run
+    [ -f "$log" ] && log_offset=$(wc -c < "$log" | tr -d ' ')
     NODE_STOPPED=1
     NET_OFF=0
     if [ -n "$STOP_CMD" ]; then
@@ -176,6 +179,27 @@ stop_node() {
         [ "$waited" -ge "$STOP_TIMEOUT" ] && die "node did not stop within ${STOP_TIMEOUT}s"
         sleep 2
     done
+
+    # A node that was killed part way through flushing leaves its anon index
+    # ahead of the chain index, and validation.cpp says so in as many words.
+    # Archiving that state bakes the damage into the snapshot and hands it to
+    # everyone who restores it, where it shows up as "Duplicate anon-output"
+    # and a failed startup. Refuse to build rather than ship that.
+    if [ ! -f "$log" ]; then
+        echo "WARNING: no debug.log at $log, cannot confirm the shutdown was clean" >&2
+        return 0
+    fi
+    if tail -c "+$((log_offset + 1))" "$log" | grep -q "Shutdown: done"; then
+        return 0
+    fi
+    log "shutdown did not finish cleanly, restarting the node and stopping here"
+    start_node || true
+    echo "ERROR: the node was killed before it finished shutting down, so its anon" >&2
+    echo "       index may be ahead of its chain index. A snapshot taken now would" >&2
+    echo "       be broken for everyone who restores it. Under systemd this is" >&2
+    echo "       usually TimeoutStopSec cutting the flush short, so raise it well" >&2
+    echo "       above how long a stop really takes (1800 is plenty) and rerun." >&2
+    exit 1
 }
 
 # ---- preflight ----------------------------------------------------------

@@ -194,6 +194,19 @@ If the node is managed by systemd, hand the script the unit rather than letting 
 STOP_CMD="systemctl stop veild" START_CMD="systemctl start veild" ./build-snapshot.sh --testnet
 ```
 
+**Give the node time to shut down.** systemd's default `TimeoutStopSec` is 90 seconds, and a mainnet node flushing its chainstate can take longer than that, on a 30GB chain we measured 97 seconds. If systemd kills it part way through, the anon index is left ahead of the chain index, which Veil itself notes in `validation.cpp`, and the next start fails with `Duplicate anon-output ... Attempting to repair anon index` before shutting down again. It recovers on a second start, but a snapshot taken from that datadir carries the damage to everyone who restores it. Raise the timeout well past what a stop actually takes:
+
+```bash
+sudo systemctl edit veild
+```
+
+```
+[Service]
+TimeoutStopSec=1800
+```
+
+The build checks for this anyway. If the node did not log a completed shutdown, it restarts the node and refuses to archive rather than publish a broken snapshot.
+
 ### Seeding a torrent
 
 By default the build deletes its parts once they are on GitHub. Pass `--keep` to leave them in the work directory instead, which is what you want if you also intend to seed them.
