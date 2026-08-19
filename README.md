@@ -269,6 +269,24 @@ Before doing anything, the script checks the newest release *for that chain*. If
 
 The node is only down for about the compression step: under 3 minutes for a 28GB mainnet chain on an M4 Mac mini, about 8 minutes for a 14GB testnet chain on a 4 core VPS. The upload afterwards runs with the node back up.
 
+### Mirroring to more than one repo
+
+GitHub serves every repo's release assets from the same CDN, so a second GitHub repo does not make downloads faster. It does add redundancy: if one repo goes away, the release still lives in another, and `restore.sh --repo owner/name` and the wallet can fall back to it.
+
+A builder can publish the same build to several repos in one pass, straight from the local files it already made, so a mirror costs one extra upload and no re-download:
+
+```bash
+MIRROR_REPOS="ohcee/veil-snapshots" ./build-snapshot.sh
+```
+
+To backfill a release that already exists somewhere onto another repo, use [`mirror-release.sh`](mirror-release.sh) from a host with a fast uplink (a VPS, or a builder that still has the parts). It downloads the assets, verifies them, and reuploads:
+
+```bash
+./mirror-release.sh mainnet-h3957761 --from Veil-Project/veil-snapshots --to ohcee/veil-snapshots
+```
+
+A slow home connection is the wrong place to run that, since it moves tens of gigabytes twice.
+
 Rough sizes, so you know what disk you need. Mainnet is 28GB on disk and compresses to 24.6GB in 14 parts, testnet is 14GB and compresses to 9.8GB in 6 parts. Mainnet barely compresses because most of its bulk is RingCT and zerocoin proofs, which are already dense.
 
 ### Schedule

@@ -16,6 +16,9 @@
 #   GPG_KEY      key id to sign SHA256SUMS with    (default: unset, no signing)
 #   MIN_AGE_DAYS skip build if latest release is   (default: 60)
 #                younger than this many days
+#   MIRROR_REPOS space separated extra repos to      (default: none)
+#                publish the same files to, from the same local build.
+#                A mirror that fails is a warning, the primary still wins.
 #
 # Several builders can share the same schedule: the age check means whoever
 # fires first each quarter publishes and everyone else's run exits clean.
@@ -495,41 +498,54 @@ Full restore and verification steps for every platform are in the README:
 https://github.com/$REPO#easy-mode
 EOF
 
-# Created as a draft on purpose. Uploading 25GB takes half an hour, and a
-# release that is public while it is still filling up is worse than no release
-# at all: it shows as the latest one, restore.sh points at it, and the
-# checksums it needs are not there yet. Drafts are invisible to everyone until
-# the last file lands, so there is no window to get caught in.
-if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-    gh release create "$TAG" -R "$REPO" --draft \
-        --title "Veil $CHAIN_LABEL snapshot, height $HEIGHT ($DATE_SHORT)" \
-        --notes-file "$NOTES"
-    log "created $TAG as a draft, it goes public once every file is uploaded"
-fi
-
 UPLOADS="SHA256SUMS manifest.json"
 [ -f SHA256SUMS.asc ] && UPLOADS="$UPLOADS SHA256SUMS.asc"
-for f in "$NAME".tar.zst.part-* $UPLOADS; do
-    attempt=1
-    until gh release upload "$TAG" -R "$REPO" --clobber "$f"; do
-        attempt=$((attempt + 1))
-        [ "$attempt" -gt 3 ] && die "upload failed 3 times for $f"
-        log "retrying upload of $f (attempt $attempt)"
-        sleep 10
-    done
-    log "uploaded $f"
-done
 
-# everything is up, so make it real. testnet is never flagged "latest", which
-# keeps the plain download URLs that restore.sh and the README use on mainnet
+# testnet is never flagged "latest", which keeps the plain download URLs that
+# restore.sh and the README use pointing at mainnet
 LATEST_FLAG="--latest"
 [ "$TESTNET" = 1 ] && LATEST_FLAG="--latest=false"
-# shellcheck disable=SC2086
-gh release edit "$TAG" -R "$REPO" --draft=false $LATEST_FLAG >/dev/null
-log "release is now public"
 
-URL=$(gh release view "$TAG" -R "$REPO" --json url -q .url)
-log "release published: $URL"
+# Publishes the already built files in $OUT to one repo. Created as a draft on
+# purpose: uploading 25GB takes a while, and a release that is public while it
+# is still filling up shows as the latest one with checksums that are not there
+# yet. Drafts are invisible until the last file lands. Reused for every mirror,
+# straight from the same local files, so a mirror costs one more upload and no
+# re-download.
+publish_to_repo() {
+    local repo="$1"
+    if ! gh release view "$TAG" -R "$repo" >/dev/null 2>&1; then
+        gh release create "$TAG" -R "$repo" --draft \
+            --title "Veil $CHAIN_LABEL snapshot, height $HEIGHT ($DATE_SHORT)" \
+            --notes-file "$NOTES" || return 1
+        log "$repo: created $TAG as a draft"
+    fi
+    local f attempt
+    for f in "$NAME".tar.zst.part-* $UPLOADS; do
+        attempt=1
+        until gh release upload "$TAG" -R "$repo" --clobber "$f"; do
+            attempt=$((attempt + 1))
+            [ "$attempt" -gt 3 ] && { echo "upload failed 3 times for $f to $repo" >&2; return 1; }
+            log "$repo: retrying upload of $f (attempt $attempt)"
+            sleep 10
+        done
+    done
+    # shellcheck disable=SC2086
+    gh release edit "$TAG" -R "$repo" --draft=false $LATEST_FLAG >/dev/null || return 1
+    log "$repo: published $(gh release view "$TAG" -R "$repo" --json url -q .url)"
+}
+
+publish_to_repo "$REPO" || die "failed to publish to $REPO"
+
+# MIRROR_REPOS is a space separated list of extra repos to publish the same
+# files to, for redundancy. A mirror that cannot be written to is a warning,
+# not a failure: the primary release is already up and is what matters.
+for mirror in ${MIRROR_REPOS:-}; do
+    [ "$mirror" = "$REPO" ] && continue
+    if publish_to_repo "$mirror"; then :; else
+        echo "WARNING: could not publish to mirror $mirror, primary $REPO is fine" >&2
+    fi
+done
 
 cd "$SCRIPT_DIR"
 if [ "$KEEP" = 1 ]; then
