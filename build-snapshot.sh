@@ -430,10 +430,12 @@ jq -n \
     --argjson height "$HEIGHT" --arg bestblockhash "$BESTHASH" \
     --arg subversion "$SUBVERSION" --arg folders "$(echo $FOLDERS)" \
     --argjson txoutsetinfo "$TXOUTSET" --argjson totalbytes "$TOTAL_BYTES" \
+    --argjson uncompressedbytes "$((DATA_KB * 1024))" \
     --slurpfile parts "$PARTS_JSONL" \
     '{name: $name, chain: $chain, created: $created, height: $height,
       bestblockhash: $bestblockhash, node: $subversion,
       folders: ($folders | split(" ")), compressed_bytes: $totalbytes,
+      uncompressed_bytes: $uncompressedbytes,
       restore: "cat *.tar.zst.part-* | zstd -d | tar -x -C <datadir>",
       txoutsetinfo: $txoutsetinfo, parts: $parts}' > manifest.json
 rm -f "$PARTS_JSONL"
